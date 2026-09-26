@@ -50,8 +50,8 @@ private struct AboutView: View {
             Usage(symbol: "arrow.left.and.right", title: L10n.tr("左右滑动", "Swipe"),
                   detail: L10n.tr("图标放不下时滚动。", "Scroll when the icons don't all fit.")),
             Usage(symbol: "slider.horizontal.3", title: L10n.tr("调亮度、音量", "Brightness & volume"),
-                  detail: L10n.tr("点最右端的齿轮，系统控制条暂时回来，稍后自动恢复；也可以在菜单里取消勾选“在 Touch Bar 上显示 Dock”。",
-                                  "Tap the gear at the right end to bring back the system controls for a moment; they hand back automatically. Or untick “Show Dock on Touch Bar” in the menu.")),
+                  detail: L10n.tr("点最右端的小眼睛，Dock 暂时隐藏、系统控制条回来，稍后自动恢复（时长在菜单里设置）；也可以在菜单里取消勾选“在 Touch Bar 上显示 Dock”。",
+                                  "Tap the eye at the right end to hide the Dock for a moment and bring back the system controls; it returns on its own (set the time in the menu). Or untick “Show Dock on Touch Bar” in the menu.")),
         ]
     }
 

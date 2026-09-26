@@ -8,13 +8,11 @@ final class DockBarController: NSObject {
         static let iconSize: CGFloat = 24
         /// Touch Bar 占满整条时可用宽度约 1004pt。
         static let maxDockWidth: CGFloat = 1000
-        /// 最右侧固定的“设置”按钮宽度（Dock 图标区不会画到它下面）。
-        static let gearWidth: CGFloat = 44
-        /// 点设置按钮时屏幕亮度低于这个值算“被调黑了”，回到 `brightnessRecovered` 以上才自动恢复。
+        /// 最右侧固定的“小眼睛”按钮宽度（Dock 图标区不会画到它下面）。
+        static let eyeWidth: CGFloat = 44
+        /// 点小眼睛时屏幕亮度低于这个值算“被调黑了”，回到 `brightnessRecovered` 以上才自动恢复。
         static let brightnessDark: Float = 0.08
         static let brightnessRecovered: Float = 0.15
-        /// 没被调黑时，暂停多久后自动恢复。
-        static let pauseTimeout: TimeInterval = 20
         static let doubleTapInterval: TimeInterval = 0.35
         /// 按住多久开始显示“长按退出”的进度条；比这更短的按压都当作点击。
         static let pressArmDelay: TimeInterval = 0.35
@@ -34,9 +32,11 @@ final class DockBarController: NSObject {
     /// 装着 Dock 和右侧“正在关闭”提示的容器；宽度固定为整条 Touch Bar，Dock 靠左，提示靠右边缘。
     private let container = NSView()
     private let quitHint = QuitHintView()
-    private let gearButton = NSButton()
-    /// 临时暂停：用户点了右侧的设置按钮，让出 Touch Bar 给系统控制条（亮度、音量……）。
+    private let eyeButton = NSButton()
+    /// 临时暂停：用户点了右侧的小眼睛按钮，让出 Touch Bar 给系统控制条（亮度、音量……）。
     private var isPaused = false
+    /// 点“小眼睛”后暂时隐藏多久（秒）；如果屏幕已经被调黑，则不看时间，等亮度回来。
+    var pauseDuration: TimeInterval = 20
     private var pauseTimer: Timer?
 
     private lazy var touchBar: NSTouchBar = {
@@ -113,27 +113,27 @@ final class DockBarController: NSObject {
         quitHint.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrubber)
         container.addSubview(quitHint)
-        container.addSubview(gearButton)
-        gearButton.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(eyeButton)
+        eyeButton.translatesAutoresizingMaskIntoConstraints = false
         let symbol = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
-        gearButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: L10n.tr("暂时显示系统控制条", "Show system controls"))?
+        eyeButton.image = NSImage(systemSymbolName: "eye", accessibilityDescription: L10n.tr("暂时隐藏 Dock", "Hide the Dock for a moment"))?
             .withSymbolConfiguration(symbol)
-        gearButton.isBordered = false
-        gearButton.imagePosition = .imageOnly
-        gearButton.contentTintColor = NSColor(white: 1, alpha: 0.7)
-        gearButton.target = self
-        gearButton.action = #selector(gearTapped)
+        eyeButton.isBordered = false
+        eyeButton.imagePosition = .imageOnly
+        eyeButton.contentTintColor = NSColor(white: 1, alpha: 0.7)
+        eyeButton.target = self
+        eyeButton.action = #selector(eyeTapped)
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(equalToConstant: Metrics.maxDockWidth),
             container.heightAnchor.constraint(equalToConstant: 30),
             scrubber.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrubber.topAnchor.constraint(equalTo: container.topAnchor),
             scrubber.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            gearButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            gearButton.topAnchor.constraint(equalTo: container.topAnchor),
-            gearButton.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            gearButton.widthAnchor.constraint(equalToConstant: Metrics.gearWidth),
-            quitHint.trailingAnchor.constraint(equalTo: gearButton.leadingAnchor),
+            eyeButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            eyeButton.topAnchor.constraint(equalTo: container.topAnchor),
+            eyeButton.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            eyeButton.widthAnchor.constraint(equalToConstant: Metrics.eyeWidth),
+            quitHint.trailingAnchor.constraint(equalTo: eyeButton.leadingAnchor),
             quitHint.topAnchor.constraint(equalTo: container.topAnchor),
             quitHint.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             quitHint.widthAnchor.constraint(equalToConstant: QuitHintView.width),
@@ -189,9 +189,9 @@ final class DockBarController: NSObject {
 
     // MARK: - 临时暂停（兜底：屏幕被调黑时能用系统的亮度条）
 
-    /// 点右侧的设置按钮：先把 Touch Bar 还给系统（亮度、音量都回来了），之后自动恢复：
+    /// 点右侧的小眼睛按钮：先把 Touch Bar 还给系统（亮度、音量都回来了），之后自动恢复：
     /// 暂停时屏幕已经是黑的，就等亮度回来；否则过一会儿自动恢复。中途亮度又被调黑，就一直等到亮起来。
-    @objc private func gearTapped() {
+    @objc private func eyeTapped() {
         beginPause()
     }
 
@@ -206,7 +206,7 @@ final class DockBarController: NSObject {
             guard let self else { return }
             let brightness = ScreenBrightness.current
             let bright = brightness.map { $0 >= Metrics.brightnessRecovered } ?? true
-            let waited = Date().timeIntervalSince(start) >= Metrics.pauseTimeout
+            let waited = Date().timeIntervalSince(start) >= pauseDuration
             if bright && (wasDark || waited) { self.endPause(present: true) }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -442,7 +442,7 @@ final class DockBarController: NSObject {
             // 图标位置变了，按压记录的序号已经不对，直接作废。
             cancelPress()
             let contentWidth = tiles.reduce(0) { $0 + Self.width(of: $1) }
-            scrubberWidth.constant = min(contentWidth, Metrics.maxDockWidth - Metrics.gearWidth)
+            scrubberWidth.constant = min(contentWidth, Metrics.maxDockWidth - Metrics.eyeWidth)
             scrubber.reloadData()
         }
     }

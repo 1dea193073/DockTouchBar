@@ -1,7 +1,7 @@
 import AppKit
 import ServiceManagement
 
-/// 菜单栏图标 + 设置：开/关、是否显示 Dock 里固定的 App、双击隐藏、长按退出的时长、语言、登录时启动、关于。
+/// 菜单栏图标 + 设置：开/关、小眼睛临时隐藏时长、只显示正在运行的 App、跨桌面、双击隐藏、长按退出的时长、语言、登录时启动、关于。
 /// 菜单文字全部在 `menuNeedsUpdate` 里按当前语言重新设置，所以切换语言后不用重启。
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private enum Key {
@@ -9,10 +9,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         static let showPinned = "showPinned"
         static let doubleTapHide = "doubleTapHide"
         static let longPressSeconds = "longPressSeconds"
+        static let hideSeconds = "hideSeconds"
     }
 
     /// 长按退出 App 的可选时长（秒），0 = 不启用。
     private static let longPressOptions = [0, 1, 2, 3, 5]
+    /// 点“小眼睛”后临时隐藏 Dock 的可选时长（秒）。
+    private static let hideOptions = [10, 20, 30, 60]
 
     private let dock = DockBarController()
     private let about = AboutWindowController()
@@ -20,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
 
     private lazy var enabledItem = makeItem(#selector(toggleEnabled))
+    private lazy var hideDurationItem = makeSubmenuItem(
+        options: Self.hideOptions.map { ($0, #selector(setHideDuration(_:))) })
     private lazy var pinnedItem = makeItem(#selector(togglePinned))
     private lazy var doubleTapItem = makeItem(#selector(toggleDoubleTap))
     private lazy var longPressItem = makeSubmenuItem(
@@ -38,19 +43,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         defaults.register(defaults: [Key.enabled: true, Key.showPinned: true,
-                                     Key.doubleTapHide: true, Key.longPressSeconds: 3])
+                                     Key.doubleTapHide: true, Key.longPressSeconds: 3,
+                                     Key.hideSeconds: 20])
 
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
+        // 分组：显示 → 切换与手势 → 通用 → 关于/退出
         menu.addItem(enabledItem)
-        menu.addItem(.separator())
+        menu.addItem(hideDurationItem)
         menu.addItem(pinnedItem)
+        menu.addItem(.separator())
+        menu.addItem(accessibilityItem)
         menu.addItem(doubleTapItem)
         menu.addItem(longPressItem)
+        menu.addItem(.separator())
         menu.addItem(languageItem)
         menu.addItem(loginItem)
-        menu.addItem(accessibilityItem)
         menu.addItem(.separator())
         menu.addItem(aboutItem)
         menu.addItem(quitItem)
@@ -63,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         dock.showsPinnedApps = defaults.bool(forKey: Key.showPinned)
         dock.doubleTapHides = defaults.bool(forKey: Key.doubleTapHide)
         dock.longPressDuration = TimeInterval(defaults.integer(forKey: Key.longPressSeconds))
+        dock.pauseDuration = TimeInterval(defaults.integer(forKey: Key.hideSeconds))
         applyEnabled()
     }
 
@@ -84,15 +94,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             : L10n.tr("当前系统不支持（找不到 Touch Bar 接口）", "Not supported on this system (Touch Bar API not found)")
         enabledItem.state = available && defaults.bool(forKey: Key.enabled) ? .on : .off
 
-        pinnedItem.title = L10n.tr("显示 Dock 里固定的 App", "Show apps pinned in the Dock")
-        pinnedItem.state = defaults.bool(forKey: Key.showPinned) ? .on : .off
+        let hideSeconds = defaults.integer(forKey: Key.hideSeconds)
+        hideDurationItem.title = L10n.tr("点小眼睛后临时隐藏：\(hideSeconds) 秒", "Hide for a moment after tapping the eye: \(hideSeconds) s")
+        for option in hideDurationItem.submenu?.items ?? [] {
+            option.title = L10n.tr("\(option.tag) 秒", "\(option.tag) s")
+            option.state = option.tag == hideSeconds ? .on : .off
+        }
 
-        doubleTapItem.title = L10n.tr("双击图标隐藏 App", "Double-tap an icon to hide the app")
+        // 界面上是“只显示正在运行的 App”，存的仍是原来的 showPinned（取反），已有用户的设置不受影响。
+        pinnedItem.title = L10n.tr("只显示正在运行的 App", "Only show running apps")
+        pinnedItem.state = defaults.bool(forKey: Key.showPinned) ? .off : .on
+
+        doubleTapItem.title = L10n.tr("双击图标：隐藏 App", "Double-tap an icon: hide the app")
         doubleTapItem.state = defaults.bool(forKey: Key.doubleTapHide) ? .on : .off
 
         let seconds = defaults.integer(forKey: Key.longPressSeconds)
-        longPressItem.title = L10n.tr("长按图标退出 App：", "Long-press an icon to quit the app: ")
-            + (seconds == 0 ? L10n.tr("不启用", "Off") : L10n.tr("\(seconds) 秒", "\(seconds) s"))
+        longPressItem.title = L10n.tr("长按图标：退出 App（", "Long-press an icon: quit the app (")
+            + (seconds == 0 ? L10n.tr("不启用", "Off") : L10n.tr("\(seconds) 秒", "\(seconds) s")) + L10n.tr("）", ")")
         for option in longPressItem.submenu?.items ?? [] {
             option.title = option.tag == 0 ? L10n.tr("不启用", "Off") : L10n.tr("按住 \(option.tag) 秒", "Hold \(option.tag) s")
             option.state = option.tag == seconds ? .on : .off
@@ -138,6 +156,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let show = !defaults.bool(forKey: Key.showPinned)
         defaults.set(show, forKey: Key.showPinned)
         dock.showsPinnedApps = show
+    }
+
+    @objc private func setHideDuration(_ sender: NSMenuItem) {
+        defaults.set(sender.tag, forKey: Key.hideSeconds)
+        dock.pauseDuration = TimeInterval(sender.tag)
     }
 
     @objc private func toggleDoubleTap() {

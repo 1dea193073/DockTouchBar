@@ -71,12 +71,15 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 Menu bar settings:
 
 - Show Dock on Touch Bar (on / off)
-- Show apps pinned in the Dock
-- Double-tap an icon to hide the app
-- Long-press an icon to quit the app: Off / 1 s / 2 s / 3 s / 5 s
+- Hide for a moment after tapping the eye: 10 / 20 / 30 / 60 s
+- Only show running apps (off by default: pinned apps are shown too)
+
+- Launch apps across desktops — ticked when Accessibility permission is granted; if not, click it to grant
+- Double-tap an icon: hide the app
+- Long-press an icon: quit the app (Off / 1 s / 2 s / 3 s / 5 s)
+
 - Language: Follow System / 简体中文 / English
 - Launch at login
-- Launch apps across desktops — ticked when Accessibility permission is granted; if not, click it to grant
 - About — usage guide, product page and build diary links, Star button
 
 Opening the app again from Applications while it is running pops up the menu.
@@ -100,7 +103,7 @@ Opening the app again from Applications while it is running pops up the menu.
 Things to know:
 
 - It uses **private Apple APIs** to keep a Touch Bar on screen from a background app. That is also why it cannot be on the Mac App Store, and why a future macOS update could break it. The private interfaces are resolved at runtime, so if one disappears that feature switches off instead of crashing; `swift tools/probe-private-api.swift` shows which ones your macOS still has.
-- The Dock takes the **whole** Touch Bar, so the system Control Strip (brightness, volume) is hidden while it is on. Tap the gear button at the right end of the bar to hand the Touch Bar back to the system for a moment (it comes back on its own after about 20 seconds, or as soon as the brightness is raised if the screen was turned all the way down). You can also untick "Show Dock on Touch Bar" in the menu.
+- The Dock takes the **whole** Touch Bar, so the system Control Strip (brightness, volume) is hidden while it is on. Tap the small eye at the right end of the bar to hide the Dock for a moment and hand the Touch Bar back to the system (it returns on its own after 10–60 seconds, 20 by default — or, if the screen was turned all the way down, as soon as the brightness is raised). You can also untick "Show Dock on Touch Bar" in the menu.
 - Left-to-right order matches your Dock: Finder → pinned apps → divider → other running apps.
 - With Stage Manager on, macOS animates the window change, so the window can take about half a second to appear on screen. The tapped app becomes the frontmost app in about 40 ms; the rest is the system's animation.
 
