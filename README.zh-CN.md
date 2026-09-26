@@ -1,0 +1,152 @@
+<p align="center">
+  <img src="assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
+</p>
+
+<h1 align="center">DockTouchBar</h1>
+
+<p align="center">
+  <strong>把 Dock 放到 Touch Bar 上。</strong>
+  <br>
+  <strong>简洁 · 优雅 · 高效</strong>
+  <br>
+  单击切换 · 双击隐藏 · 长按退出
+  <br>
+  <a href="README.md">English</a> ·
+  <a href="https://github.com/hooosberg/DockTouchBar/releases/latest">下载</a> ·
+  <a href="https://hooosberg.com/">官网</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
+  <img src="https://img.shields.io/badge/Apple%20芯片-已实测-2e7d32.svg" alt="Apple 芯片：已实测">
+  <img src="https://img.shields.io/badge/Intel-未实测-f9a825.svg" alt="Intel：未实测">
+  <img src="https://img.shields.io/badge/Swift-AppKit-F05138.svg" alt="Swift + AppKit">
+  <img src="https://img.shields.io/badge/许可证-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
+</p>
+
+![Touch Bar 上的 DockTouchBar](assets/touchbar.png)
+
+*Touch Bar 的渲染示意图：由 App 自己的界面代码画出，用系统自带 App 做示例。顺序和你的 Dock 一致：访达 → 固定的 App → 分隔线 → 其他正在运行的 App。小圆点表示正在运行，最亮的是当前前台 App。*
+
+**如果 DockTouchBar 对你有用，去 GitHub 点个 ⭐ Star，就是最好的支持。**
+
+## 为什么做
+
+Pock、PockV2 等都能把 Dock 放到 Touch Bar 上，但它们做的事情更多，日常用起来 Touch Bar 容易消失或点了没反应。DockTouchBar 只做一件事，并且把这件事做好。
+
+**简洁**
+
+- 只做一件事：Touch Bar 上的 Dock。没有小组件，没有插件。
+- 菜单栏里只有几个开关，没有别的要配置。
+- 大约 1300 行 Swift，9 个文件，没有第三方依赖。整个 App 只有 1.1 MB。
+
+**优雅**
+
+- 像 macOS 自带的一部分：图标顺序和运行小圆点都和你的 Dock 一致，用的是系统自己的 Touch Bar 滚动控件。
+- 手势不打扰你：单击立刻生效，不会为了等你是不是要双击而延迟；长按时只出现一条安静的红色进度条，中途松手就取消。
+- 跟随你的语言（English / 简体中文），只需要一个可选的权限。
+
+**高效**
+
+- 事件驱动，没有轮询。在 M1 MacBook Pro 上开着 Dock 空闲时实测：**CPU 0.0%**、**空闲唤醒 0 次**、内存约 **35 MB**。\*
+- App 启动或退出时只更新变化的部分，滚动位置不会被打断；图标只栅格化一次并缓存。
+- 能自己恢复：睡眠唤醒、屏幕解锁、控制条进程重启之后自动重新挂上，不用手动重开。
+- 失败时安全：私有接口在运行时解析，系统删掉某个接口时，对应功能自动关闭，而不是崩溃。
+- 隐私：不联网，没有统计，没有账号，只保存你的偏好设置。
+
+<sub>\* Release 版本，用 `top` 和 `footprint` 在 10 秒空闲窗口内测得：连续 5 次采样（间隔 2 秒），CPU 都是 0.0%、空闲唤醒 0 次；物理内存占用 35 MB。</sub>
+
+## 功能
+
+| 操作 | 效果 |
+|---|---|
+| **单击**图标 | 切换到这个 App，没打开的就启动。App 的窗口在别的桌面时，自动切到那个桌面 |
+| **双击** | 隐藏这个 App（等同 ⌘H），再点一下就回来 |
+| **长按** | 退出这个 App（等同 ⌘Q）。按住时图标下方出现红色进度条，走满就退出；中途松手算单击。访达不会被退出 |
+| **左右滑动** | 图标放不下时滚动 |
+
+菜单栏里的设置：
+
+- 在 Touch Bar 上显示 Dock（开 / 关）
+- 显示 Dock 里固定的 App
+- 双击图标隐藏 App
+- 长按图标退出 App：不启用 / 1 / 2 / 3 / 5 秒
+- 语言：跟随系统 / 简体中文 / English
+- 登录时自动启动
+- 跨桌面启动应用：有辅助功能权限时打勾；没有时点一下去授权
+- 关于：使用说明、作者链接、Star 按钮
+
+App 已经在运行时，再从「应用程序」打开它，会直接弹出这个菜单。
+
+![长按退出](assets/touchbar-longpress.png)
+
+*长按：图标变暗，下方出现红色进度条，走满就退出；中途松手算单击。*
+
+<img src="assets/about-zh.png" alt="关于窗口" width="360">
+
+## 使用环境和实测情况
+
+| | |
+|---|---|
+| 硬件 | 带 Touch Bar 的 Mac（MacBook Pro 2016–2022） |
+| **实测环境** | **MacBook Pro 13 英寸（M1，`MacBookPro17,1`），macOS 27.0，单显示器，3 个桌面，Touch Bar 设为“展开的控制条”，开着台前调度** |
+| Apple 芯片（M1） | ✅ 这就是开发和日常使用的机器 |
+| Intel | ⚠️ **未知。** 安装包是通用二进制，在 M1 上用 Rosetta 能启动 Intel 部分，但从没在真正的 Intel Touch Bar 机器上跑过。欢迎反馈 |
+| macOS 版本 | 最低按 macOS 13 编译，但只在 macOS 27.0 上测过，更早的版本没测 |
+
+需要知道的几件事：
+
+- 后台 App 要让 Touch Bar 一直显示，只能用 **Apple 的私有 API**。所以它不能上架 Mac App Store，以后 macOS 更新也可能让它失效。私有接口都是在运行时解析的，缺了哪个，对应功能会自己关闭而不是崩溃；运行 `swift tools/probe-private-api.swift` 可以看到你的 macOS 里还有哪些。
+- Dock 会占满**整条** Touch Bar，开着的时候系统控制条（亮度、音量）看不到。要用时，在菜单里取消勾选“在 Touch Bar 上显示 Dock”。
+- 图标顺序和你的 Dock 一致：访达 → 固定的 App → 分隔线 → 其他正在运行的 App。
+
+## 安装
+
+1. 到 [Releases](https://github.com/hooosberg/DockTouchBar/releases/latest) 下载 `DockTouchBar-<版本>.dmg`。
+2. 打开后把 **DockTouchBar** 拖到 **Applications**，再启动它。菜单栏和 Touch Bar 上会出现图标。
+
+> DMG 用 Developer ID 证书签名，并且**已通过 Apple 公证**，所以和普通 App 一样可以直接打开，第一次启动时系统只会让你确认一下。想自己编译的话，见[从源码编译](#从源码编译)。
+
+### 辅助功能权限（可选）
+
+切到别的桌面上的窗口需要辅助功能权限。不给也不影响其他功能，这时点 App 只会把它带到前台，不切桌面。
+
+1. 菜单栏图标 → **允许跨桌面启动应用…**（授权后这一项会变成打勾的“跨桌面启动应用”）
+2. 在 系统设置 → 隐私与安全性 → 辅助功能 里打开 DockTouchBar。
+
+如果打开后仍然提示授权，说明旧记录已失效（App 的签名变了就会这样）：在列表里选中 DockTouchBar，点 **−** 删掉，再重新添加。或者运行 `tccutil reset Accessibility com.maohuhu.docktouchbar` 后重做第 1 步。
+
+## 从源码编译
+
+需要 Xcode 命令行工具。
+
+```bash
+git clone https://github.com/hooosberg/DockTouchBar.git
+cd DockTouchBar
+scripts/install.sh      # 编译 → 装到 /Applications → 启动
+scripts/make-dmg.sh     # 生成 build/DockTouchBar-<版本>.dmg
+```
+
+没有签名证书时会退回 ad-hoc 签名。能用，但 macOS 会把每次重新编译的 ad-hoc 版本当成新 App，辅助功能权限每次都要重新授权。设置 `SIGN_IDENTITY="Apple Development: …"`（或 Developer ID 证书）可以固定签名身份。
+
+## 目录结构
+
+```
+Sources/DockTouchBar/   App 源码（9 个文件）
+Resources/              Info.plist、App 图标
+scripts/                build.sh、install.sh、make-dmg.sh、make-icon.sh
+tools/                  诊断工具：私有接口检查、桌面与窗口查看、离屏预览
+assets/                 README 里的图片
+```
+
+macOS 大版本更新后，运行 `swift tools/probe-private-api.swift` 可以看到哪些私有接口还在。
+
+## 许可证
+
+[PolyForm Noncommercial License 1.0.0](LICENSE)：**个人使用及其他非商业用途**可以免费使用、复制、修改和分享。**商业使用不在授权范围内**，需要向作者另行取得授权，请通过 [hooosberg.com](https://hooosberg.com/) 联系。
+
+这是“源码可见”许可证，不是 OSI 认可的开源许可证。版权声明：Copyright © 2026 hooosberg。
+
+## 作者
+
+**hooosberg** — [hooosberg.com](https://hooosberg.com/) · [GitHub](https://github.com/hooosberg)。如果它帮你省了几次点击，欢迎 ⭐ Star 支持。
