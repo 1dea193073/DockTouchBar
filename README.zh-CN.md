@@ -13,7 +13,8 @@
   <br>
   <a href="README.md">English</a> ·
   <a href="https://github.com/hooosberg/DockTouchBar/releases/latest">下载</a> ·
-  <a href="https://hooosberg.com/">官网</a>
+  <a href="https://hooosberg.com/apps/docktouchbar">产品页</a> ·
+  <a href="https://hooosberg.com/apps/docktouchbar/diary">开发日记</a>
 </p>
 
 <p align="center">
@@ -38,23 +39,25 @@ Pock、PockV2 等都能把 Dock 放到 Touch Bar 上，但它们做的事情更�
 
 - 只做一件事：Touch Bar 上的 Dock。没有小组件，没有插件。
 - 菜单栏里只有几个开关，没有别的要配置。
-- 大约 1300 行 Swift，9 个文件，没有第三方依赖。整个 App 只有 1.1 MB。
+- 大约 1650 行 Swift，9 个文件，没有第三方依赖。整个 App 只有 1.1 MB。
 
 **优雅**
 
 - 像 macOS 自带的一部分：图标顺序和运行小圆点都和你的 Dock 一致，用的是系统自己的 Touch Bar 滚动控件。
 - 手势不打扰你：单击立刻生效，不会为了等你是不是要双击而延迟；长按时只出现一条安静的红色进度条，中途松手就取消。
+- 连点也很跟手：永远以最后一下为准，也不会和你争。切桌面被系统丢掉、或者焦点被别的 App 抢走，它会悄悄纠正回来；你一动键盘、鼠标或触控板，它立刻停手。
 - 跟随你的语言（English / 简体中文），只需要一个可选的权限。
 
 **高效**
 
-- 事件驱动，没有轮询。在 M1 MacBook Pro 上开着 Dock 空闲时实测：**CPU 0.0%**、**空闲唤醒 0 次**、内存约 **35 MB**。\*
+- 事件驱动，没有轮询。在 M1 MacBook Pro 上开着 Dock 空闲时实测：**CPU 0.0%**、**空闲唤醒 0 次**、内存约 **34 MB**。\*
+- 适应你的电脑，而不是用固定的等待时间：切桌面时等系统自己发出的“切完了”信号并核对结果，动画慢、关掉动画、机器很忙时都不会出错。
 - App 启动或退出时只更新变化的部分，滚动位置不会被打断；图标只栅格化一次并缓存。
 - 能自己恢复：睡眠唤醒、屏幕解锁、控制条进程重启之后自动重新挂上，不用手动重开。
 - 失败时安全：私有接口在运行时解析，系统删掉某个接口时，对应功能自动关闭，而不是崩溃。
 - 隐私：不联网，没有统计，没有账号，只保存你的偏好设置。
 
-<sub>\* Release 版本，用 `top` 和 `footprint` 在 10 秒空闲窗口内测得：连续 5 次采样（间隔 2 秒），CPU 都是 0.0%、空闲唤醒 0 次；物理内存占用 35 MB。</sub>
+<sub>\* Release 版本。CPU 是 `top` 连续 5 次采样（间隔 2 秒）都是 0.0%；唤醒次数是读内核的进程计数器、隔 20 秒读两次做差（空闲唤醒 0 次、中断唤醒 0 次、CPU 时间 0.0 ms）；内存是 `footprint` 的物理占用（34 MB）。</sub>
 
 ## 功能
 
@@ -74,7 +77,7 @@ Pock、PockV2 等都能把 Dock 放到 Touch Bar 上，但它们做的事情更�
 - 语言：跟随系统 / 简体中文 / English
 - 登录时自动启动
 - 跨桌面启动应用：有辅助功能权限时打勾；没有时点一下去授权
-- 关于：使用说明、作者链接、Star 按钮
+- 关于：使用说明、产品页和开发日记链接、Star 按钮
 
 App 已经在运行时，再从「应用程序」打开它，会直接弹出这个菜单。
 
@@ -99,6 +102,7 @@ App 已经在运行时，再从「应用程序」打开它，会直接弹出这�
 - 后台 App 要让 Touch Bar 一直显示，只能用 **Apple 的私有 API**。所以它不能上架 Mac App Store，以后 macOS 更新也可能让它失效。私有接口都是在运行时解析的，缺了哪个，对应功能会自己关闭而不是崩溃；运行 `swift tools/probe-private-api.swift` 可以看到你的 macOS 里还有哪些。
 - Dock 会占满**整条** Touch Bar，开着的时候系统控制条（亮度、音量）看不到。要用时，在菜单里取消勾选“在 Touch Bar 上显示 Dock”。
 - 图标顺序和你的 Dock 一致：访达 → 固定的 App → 分隔线 → 其他正在运行的 App。
+- 开着台前调度时，macOS 会给窗口切换加动画，窗口在屏幕上出现要约半秒。被点的 App 变成前台只要约 40 毫秒，剩下的时间是系统的动画。
 
 ## 安装
 
@@ -115,6 +119,14 @@ App 已经在运行时，再从「应用程序」打开它，会直接弹出这�
 2. 在 系统设置 → 隐私与安全性 → 辅助功能 里打开 DockTouchBar。
 
 如果打开后仍然提示授权，说明旧记录已失效（App 的签名变了就会这样）：在列表里选中 DockTouchBar，点 **−** 删掉，再重新添加。或者运行 `tccutil reset Accessibility com.maohuhu.docktouchbar` 后重做第 1 步。
+
+### 点了没有切到桌面时
+
+出问题之后马上在仓库目录里运行下面这条。它是只读的，会打印程序当时怎么判断这个 App 的窗口：有哪些窗口、各在哪个桌面、哪些是真实窗口、最后会提前哪一个：
+
+```bash
+tools/diagnose-switch.sh com.google.Chrome
+```
 
 ## 从源码编译
 
@@ -135,7 +147,7 @@ scripts/make-dmg.sh     # 生成 build/DockTouchBar-<版本>.dmg
 Sources/DockTouchBar/   App 源码（9 个文件）
 Resources/              Info.plist、App 图标
 scripts/                build.sh、install.sh、make-dmg.sh、make-icon.sh
-tools/                  诊断工具：私有接口检查、桌面与窗口查看、离屏预览
+tools/                  诊断工具：私有接口检查、桌面与窗口查看、切换诊断、连点压力测试、离屏预览
 assets/                 README 里的图片
 ```
 

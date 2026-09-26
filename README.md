@@ -13,7 +13,8 @@
   <br>
   <a href="README.zh-CN.md">简体中文</a> ·
   <a href="https://github.com/hooosberg/DockTouchBar/releases/latest">Download</a> ·
-  <a href="https://hooosberg.com/">Website</a>
+  <a href="https://hooosberg.com/apps/docktouchbar">Product page</a> ·
+  <a href="https://hooosberg.com/apps/docktouchbar/diary">Build diary</a>
 </p>
 
 <p align="center">
@@ -38,23 +39,25 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 
 - One job: your Dock on the Touch Bar. No widgets, no plugins.
 - A handful of switches in the menu bar, nothing else to configure.
-- About 1,300 lines of Swift in 9 files, no third-party dependencies. The whole app is 1.1 MB.
+- About 1,650 lines of Swift in 9 files, no third-party dependencies. The whole app is 1.1 MB.
 
 **Elegant**
 
 - Feels like part of macOS: the same order, icons and running dots as your Dock, on the system's own Touch Bar scroller.
 - Gestures that stay out of your way: a tap acts immediately (it never waits to see whether a double-tap is coming), and long-press shows a quiet red progress bar you can back out of.
+- Rapid taps feel right: the last tap always wins, and it never fights you. If the system drops a desktop switch or something steals focus, it quietly puts things right, and it stops the moment you touch the keyboard, mouse or trackpad.
 - Speaks your language (English / 简体中文) and asks for just one optional permission.
 
 **Efficient**
 
-- Event-driven, no polling. Measured on an M1 MacBook Pro with the Dock showing and idle: **0.0% CPU**, **0 idle wakeups**, about **35 MB** of memory.\*
+- Event-driven, no polling. Measured on an M1 MacBook Pro with the Dock showing and idle: **0.0% CPU**, **0 idle wakeups**, about **34 MB** of memory.\*
+- Adapts to your Mac instead of using fixed delays: desktop switches wait for the system's own "finished" signal and check the result, so it stays correct whether animations are slow, off, or the machine is busy.
 - When apps start or quit, only what changed is updated and your scroll position is kept. Icons are rasterized once and cached.
 - Self-healing: re-attaches after sleep, screen unlock and Control Strip restarts, so you never have to relaunch it.
 - Fails safe: private APIs are resolved at runtime. If macOS removes one, that feature switches itself off instead of crashing.
 - Private: no network access, no analytics, no accounts. It only stores your preferences.
 
-<sub>\* Release build, measured with `top` and `footprint` over a 10-second idle window: five samples 2 s apart, all 0.0% CPU and 0 idle wakeups; physical footprint 35 MB.</sub>
+<sub>\* Release build. CPU from five `top` samples 2 s apart (all 0.0%); wakeups from the kernel's per-process counters read 20 s apart (0 idle wakeups, 0 interrupt wakeups, 0.0 ms CPU time in between); memory is the physical footprint from `footprint` (34 MB).</sub>
 
 ## Features
 
@@ -74,7 +77,7 @@ Menu bar settings:
 - Language: Follow System / 简体中文 / English
 - Launch at login
 - Launch apps across desktops — ticked when Accessibility permission is granted; if not, click it to grant
-- About — usage guide, author links, Star button
+- About — usage guide, product page and build diary links, Star button
 
 Opening the app again from Applications while it is running pops up the menu.
 
@@ -99,6 +102,7 @@ Things to know:
 - It uses **private Apple APIs** to keep a Touch Bar on screen from a background app. That is also why it cannot be on the Mac App Store, and why a future macOS update could break it. The private interfaces are resolved at runtime, so if one disappears that feature switches off instead of crashing; `swift tools/probe-private-api.swift` shows which ones your macOS still has.
 - The Dock takes the **whole** Touch Bar, so the system Control Strip (brightness, volume) is hidden while it is on. Untick "Show Dock on Touch Bar" in the menu to get it back.
 - Left-to-right order matches your Dock: Finder → pinned apps → divider → other running apps.
+- With Stage Manager on, macOS animates the window change, so the window can take about half a second to appear on screen. The tapped app becomes the frontmost app in about 40 ms; the rest is the system's animation.
 
 ## Install
 
@@ -115,6 +119,14 @@ Jumping to a window on another desktop needs Accessibility permission. Without i
 2. In System Settings → Privacy & Security → Accessibility, turn DockTouchBar on.
 
 If it still asks after you turned it on, the old entry is stale (this happens when the app's signature changed): select DockTouchBar in the list, click **−**, then add it again. Or run `tccutil reset Accessibility com.maohuhu.docktouchbar` and repeat step 1.
+
+### If a tap doesn't switch desktops
+
+Right after it happens, run this from a clone of the repo. It is read-only and prints how the app judged that app's windows (which windows exist, which desktop each is on, which ones are real windows, which one it would raise):
+
+```bash
+tools/diagnose-switch.sh com.google.Chrome
+```
 
 ## Build from source
 
@@ -135,7 +147,7 @@ Without a signing certificate the build falls back to ad-hoc signing. That works
 Sources/DockTouchBar/   App source (9 files)
 Resources/              Info.plist, app icon
 scripts/                build.sh, install.sh, make-dmg.sh, make-icon.sh
-tools/                  Diagnostics: private-API check, Spaces/windows inspector, offscreen preview
+tools/                  Diagnostics: private-API check, Spaces/windows inspector, switch diagnostic, rapid-click stress test, offscreen preview
 assets/                 README images
 ```
 

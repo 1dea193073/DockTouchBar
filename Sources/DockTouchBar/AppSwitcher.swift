@@ -6,32 +6,149 @@ import AppKit
 /// 桌面不动（macOS 27 实测，`openApplication` 和 `NSRunningApplication.activate` 都一样）。
 /// 所以当目标 App 在当前桌面没有窗口、但在别的桌面有窗口时，这里自己找到那个窗口：
 /// 先用 SkyLight 把它设为前台窗口，再用辅助功能 Raise，系统随之切到那个桌面（和 AltTab 的做法相同）。
+/// 找窗口有两个坑，都是实测出来的：
+/// 1. 很多 App（比如 Chrome）在窗口列表里会排着一些看不见的辅助窗口（辅助功能里类型是 AXUnknown），
+///    提前它们不会切桌面，所以要优先选类型正确的真实窗口；
+/// 2. 按窗口号反查到的辅助功能元素，可能是窗口里面的子元素（比如访达返回的是里面的滚动区域），
+///    对它 Raise 会失败，所以要先取到它所在的窗口。
+/// 3. 系统切桌面有动画（这台机器上约半秒，机器卡或关掉动画时会变）。这期间读到的“当前桌面”和“屏幕上看得见的窗口”
+///    还是旧的，连续快速点击时拿它们判断，第二下会误以为“已经在那个桌面了”而退回普通激活，不切桌面
+///    （实测点击间隔 250ms 时 0/4 全错）。所以程序记住“刚刚请求系统去的桌面”，动画结束前以它为准。
+/// 4. 动画进行中发出的第二次“切桌面”请求，系统会直接丢掉，接口却照样返回成功。不靠固定的等待时间，而是看结果：
+///    发出请求后先看请求有没有被接受（目标 App 应该很快变成前台，实测 40–80ms，没有就是被丢了，马上重发），
+///    再等系统“切完了”的官方信号（NSWorkspace.activeSpaceDidChangeNotification，动画结束时发出），并且自己
+///    核对系统报告的桌面；下一次要切桌面的点击，如果上一次还没收到完成信号，也是等信号。
+///    实测“切完了”的信号只比系统真正能接受新请求早一点点：信号后 8ms 发出的请求被丢过，所以不能只靠信号，
+///    必须核对请求是否被接受。等的时候如果有更新的点击取代了它，就跳过。
+/// 5. 系统偶尔会进入“不听话”的状态：请求被丢了、切到一半又被切回去、焦点被别的 App 抢走。所以点击处理完之后，
+///    还要在一小段时间里持续核对最终结果（前台是不是目标 App、当前桌面上有没有它的窗口），不一致就重新纠正。
+///    这只在用户没有动键盘鼠标、也没有更新的点击时才做，绝不去和用户争焦点。
 /// 需要辅助功能权限；没有权限或任何一步失败，都退回普通的打开/激活。
 enum AppSwitcher {
+    /// 最多试几个候选窗口，以及总共最多花多久；候选没有真实窗口时，宁可退回普通激活，也不要拖住点击。
+    private static let maxCandidates = 4
+    private static let searchTimeLimit: TimeInterval = 1.5
     private static let queue = DispatchQueue(label: "com.maohuhu.docktouchbar.switcher", qos: .userInitiated)
     private static var didPromptForAccess = false
 
+    /// 已经请求系统切过去、但还没确认“切完了”的桌面。只在 `queue` 上读写。
+    private static var pendingSpace: (id: UInt64, since: Date)?
+    /// 等系统“切完了”的最长时间。正常动画只要半秒左右，这只是兜底：机器很卡也够，请求被丢了也不会一直等。
+    private static let spaceSwitchTimeout: TimeInterval = 1.6
+    /// 请求发出后，等目标 App 变成前台的最长时间：被接受的请求实测 40–80ms 就会，超过这个就当作被系统丢了。
+    private static let acceptTimeout: TimeInterval = 0.4
+    /// 最多发几次请求（第一次 + 被丢了之后的重发），重发之间隔一小会儿，免得又落在系统还没准备好的那一刻。
+    private static let maxRaiseAttempts = 3
+
+    /// 点击之后盯着最终结果多久（从点击算起，包含约半秒的切桌面动画），多久核对一次，最多纠正几次。
+    /// 异常（被抢焦点、被切回去）往往发生在动作完成之后一会儿，所以达成了也不提前结束，一直盯到窗口结束。
+    private static let convergeWindow: TimeInterval = 2.4
+    private static let convergeInterval: TimeInterval = 0.12
+    private static let maxConvergeRetries = 3
+    private static let retryBackoff: TimeInterval = 0.05
+    /// 单次“提到最前面”的辅助功能调用最多等多久。系统正忙（比如刚好在切桌面动画的尾巴上）时它会一直不返回，
+    /// 与其卡一秒多，不如快点失败、稍后重发（实测卡过 1.5 秒后失败）。
+    private static let raiseCallTimeout: TimeInterval = 0.35
+
+    /// 已经找到的窗口对应的辅助功能元素。按元素编号枚举很慢（动画期间实测 240ms），窗口不变元素就一直有效，缓存起来。
+    /// 只在 `queue` 上读写；用的时候如果失败了就丢掉重新找。
+    private static var elementCache: [CGWindowID: (pid: pid_t, element: AXUIElement)] = [:]
+
+    /// 最近一次点击（主线程写，`queue` 上读），用来丢掉已经被后面另一个 App 的点击取代的旧点击。
+    private static let clickLock = NSLock()
+    private static var latestClick = (serial: 0, pid: pid_t(0))
+
     static func switchTo(_ tile: DockTile) {
         guard let url = tile.url else { return }
-        guard let app = DockModel.runningApp(bundleID: tile.bundleID, url: url), !app.isHidden else {
+        let clickTime = Date()
+        SpaceWatcher.start()
+        let app = DockModel.runningApp(bundleID: tile.bundleID, url: url)
+        let pid = app?.processIdentifier ?? 0
+        clickLock.lock()
+        latestClick = (latestClick.serial + 1, pid)
+        let serial = latestClick.serial
+        clickLock.unlock()
+        guard let app, !app.isHidden else {
             launchOrActivate(url)
             return
         }
-        let pid = app.processIdentifier
         // 辅助功能调用会跨进程等待目标 App 回应，放到后台，别卡住 Touch Bar。
         queue.async {
+            // 连点时，前一个还没轮到的点击如果已经被另一个 App 的点击取代，就不用做了，直接去最后点的那个。
+            if isSuperseded(serial: serial, pid: pid) { return }
+
             var switched = false
-            if let window = windowOnOtherSpaceOnly(of: pid) {
-                if AXIsProcessTrusted() {
-                    switched = focus(pid: pid, window: window)
-                } else {
-                    DispatchQueue.main.async { promptForAccessOnce() }
+            if AXIsProcessTrusted() {
+                let candidates = windowsToRaise(of: pid)
+                if !candidates.isEmpty {
+                    switched = raiseFirstRealWindow(pid: pid, candidates: candidates) { isSuperseded(serial: serial, pid: pid) }
                 }
+                if !switched { pendingSpace = nil }
+            } else if !windowsOnOtherSpaces(of: pid).isEmpty {
+                // 需要跨桌面才能看到窗口，但没有辅助功能权限：提示一次。
+                DispatchQueue.main.async { promptForAccessOnce() }
             }
-            if !switched {
+            if switched {
+                converge(pid: pid, url: url, serial: serial, clickTime: clickTime)
+            } else {
                 DispatchQueue.main.async { launchOrActivate(url) }
             }
         }
+    }
+
+    /// 点击处理完之后盯着结果：最终状态和目标不一致（请求被丢了、被切回去、焦点被抢走）就重新纠正。
+    /// 用户自己在动键盘鼠标、或者有更新的点击时立刻放弃，绝不和用户争。
+    private static func converge(pid: pid_t, url: URL, serial: Int, clickTime: Date) {
+        let deadline = clickTime.addingTimeInterval(convergeWindow)
+        var retries = 0
+        // 盯梢期间任何更新的点击（包括再点同一个 App）都立刻结束盯梢，让队列空出来：那次点击会自己处理自己的结果。
+        let superseded = { isNewerClick(after: serial) }
+        while Date() < deadline {
+            if superseded() || userInput(since: clickTime) { return }
+            if !isAchieved(pid: pid) {
+                // 系统还在切桌面时不重发，等它切完再看。
+                if pendingSpace == nil, retries < maxConvergeRetries {
+                    retries += 1
+                    let candidates = windowsToRaise(of: pid)
+                    let redone = !candidates.isEmpty && raiseFirstRealWindow(pid: pid, candidates: candidates, superseded: superseded)
+                    if !redone { DispatchQueue.main.async { launchOrActivate(url) } }
+                }
+            }
+            // 睡一小会儿再核对；被更新的点击取代就立刻醒来。
+            _ = SpaceWatcher.waitUntil(timeout: convergeInterval, poll: 0.02, superseded: superseded, { false })
+        }
+    }
+
+    /// 现在的状态就是想要的吗：目标 App 在前台，并且它在当前桌面上有窗口（App 没有任何窗口时，在前台就够了）。
+    private static func isAchieved(pid: pid_t) -> Bool {
+        guard frontmostPID() == pid else { return false }
+        guard let active = SkyLight.activeSpace() else { return true }
+        let owned = normalWindows(of: pid, options: [.optionAll, .excludeDesktopElements])
+            .map { SkyLight.spaces(of: $0) }
+            .filter { !$0.isEmpty }
+        return owned.isEmpty || owned.contains { $0.contains(active) }
+    }
+
+    /// 点击之后用户有没有动过键盘、鼠标、滚轮。程序自己激活 App、提前窗口不会算。
+    private static func userInput(since time: Date) -> Bool {
+        let types: [CGEventType] = [.keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown,
+                                    .mouseMoved, .leftMouseDragged, .scrollWheel]
+        let idle = types.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity
+        return idle < Date().timeIntervalSince(time) - 0.05
+    }
+
+    /// 在这次点击之后有没有更新的点击（不管点的是哪个 App）。
+    private static func isNewerClick(after serial: Int) -> Bool {
+        clickLock.lock()
+        defer { clickLock.unlock() }
+        return latestClick.serial != serial
+    }
+
+    /// 这次点击是否已经被后面另一个 App 的点击取代（任何线程都可以调用）。
+    private static func isSuperseded(serial: Int, pid: pid_t) -> Bool {
+        clickLock.lock()
+        defer { clickLock.unlock() }
+        return latestClick.serial != serial && latestClick.pid != pid
     }
 
     /// 长按：正常退出（等同 ⌘Q，有未保存内容的 App 会自己弹窗询问）。
@@ -80,15 +197,81 @@ enum AppSwitcher {
 
     // MARK: - 找窗口
 
-    /// 当前桌面上没有这个 App 的窗口、但别的桌面上有时，返回最靠前的那个；其他情况返回 nil。
-    private static func windowOnOtherSpaceOnly(of pid: pid_t) -> CGWindowID? {
-        guard SkyLight.isAvailable else { return nil }
-        if !normalWindows(of: pid, options: [.optionOnScreenOnly, .excludeDesktopElements]).isEmpty {
-            return nil
+    /// 以哪个桌面为“当前桌面”：刚请求过切桌面、还没确认切完时用请求的那个，否则用系统报告的。
+    private static func effectiveSpace() -> UInt64? {
+        let reported = SkyLight.activeSpace()
+        if let pending = pendingSpace {
+            if reported == pending.id || Date().timeIntervalSince(pending.since) > spaceSwitchTimeout * 2 {
+                pendingSpace = nil   // 已经切完了，或者等太久了不再相信
+            } else {
+                return pending.id
+            }
+        }
+        return reported
+    }
+
+    /// 这个 App 要提到最前面的候选窗口，按顺序：先是在“当前桌面”上的，再是在别的桌面上的（最小化的没有桌面，不算）。
+    /// 只按窗口所属的桌面编号判断，不看“屏幕上看不看得见”，因为后者在切桌面动画期间是过期的。
+    private static func windowsToRaise(of pid: pid_t) -> [CGWindowID] {
+        guard SkyLight.isAvailable, let space = effectiveSpace() else { return [] }
+        let owned = normalWindows(of: pid, options: [.optionAll, .excludeDesktopElements])
+            .map { (window: $0, spaces: SkyLight.spaces(of: $0)) }
+            .filter { !$0.spaces.isEmpty }
+        return owned.filter { $0.spaces.contains(space) }.map(\.window) + owned.filter { !$0.spaces.contains(space) }.map(\.window)
+    }
+
+    /// 当前桌面上没有这个 App 的真实窗口时，按前后顺序返回它在各桌面上的候选窗口；已经有真实窗口就返回空。
+    /// 候选里可能混着看不见的辅助窗口，要不要用由 `raiseFirstRealWindow` 逐个核实。
+    private static func windowsOnOtherSpaces(of pid: pid_t) -> [CGWindowID] {
+        guard SkyLight.isAvailable else { return [] }
+        let visible = normalWindows(of: pid, options: [.optionOnScreenOnly, .excludeDesktopElements])
+        // 当前桌面上看得见的“窗口”也可能是辅助窗口，不能因为它就认为已经有窗口了。
+        // 没有辅助功能权限时没法核实，保持原来的判断。
+        if !visible.isEmpty, !AXIsProcessTrusted() || hasRealWindow(among: visible, pid: pid) {
+            return []
         }
         // 列表按前后顺序排列。最小化的窗口不属于任何桌面，跳过（交给 launchOrActivate 还原）。
         return normalWindows(of: pid, options: [.optionAll, .excludeDesktopElements])
-            .first { !SkyLight.spaces(of: $0).isEmpty }
+            .filter { !SkyLight.spaces(of: $0).isEmpty }
+    }
+
+    /// `visible` 里有没有真实窗口。辅助功能查不到（超时、App 卡住）时按“有”处理，保持原来的行为。
+    private static func hasRealWindow(among visible: [CGWindowID], pid: pid_t) -> Bool {
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, 1)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success else { return true }
+        let real = Set((value as? [AXUIElement] ?? []).filter { isRealWindow($0) }.compactMap { AXPrivate.windowID(of: $0) })
+        return visible.contains { real.contains($0) }
+    }
+
+    /// 真实窗口：辅助功能里的类型是 AXWindow，并且没有最小化。
+    /// `strict` 时还要求窗口类型是标准窗口、对话框这类；看不见的辅助窗口类型是 AXUnknown，只在宽松判断里算数。
+    private static func isRealWindow(_ element: AXUIElement, strict: Bool = false) -> Bool {
+        guard attribute(element, kAXRoleAttribute) == kAXWindowRole as String else { return false }
+        if strict {
+            let realSubroles: Set<String> = [kAXStandardWindowSubrole as String, kAXDialogSubrole as String,
+                                             kAXSystemDialogSubrole as String, kAXFloatingWindowSubrole as String]
+            guard let subrole = attribute(element, kAXSubroleAttribute), realSubroles.contains(subrole) else { return false }
+        }
+        var minimized: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXMinimizedAttribute as CFString, &minimized)
+        return minimized as? Bool != true
+    }
+
+    private static func attribute(_ element: AXUIElement, _ name: String) -> String? {
+        var value: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, name as CFString, &value)
+        return value as? String
+    }
+
+    /// 元素本身是窗口就用它；否则取它所在的窗口（比如访达里查到的是窗口里的滚动区域）。
+    private static func containingWindow(of element: AXUIElement) -> AXUIElement? {
+        if attribute(element, kAXRoleAttribute) == kAXWindowRole as String { return element }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
     }
 
     /// 普通窗口：第 0 层、不透明、不是 App 用来占位的小窗口。
@@ -106,9 +289,95 @@ enum AppSwitcher {
 
     // MARK: - 切过去
 
-    private static func focus(pid: pid_t, window: CGWindowID) -> Bool {
-        guard SkyLight.makeFront(pid: pid, window: window),
-              let element = axWindow(pid: pid, window: window) else { return false }
+    /// 从候选里按顺序找到真实窗口并提到最前面；这个窗口提不上来，就试下一个。
+    /// 先只认标准窗口、对话框这类；一个都没有时才放宽，免得类型特殊的 App 反而切不了。
+    /// 返回 true 表示已经处理完（提到了最前面，或者等结果时被更新的点击取代而跳过），不需要再退回普通激活。
+    private static func raiseFirstRealWindow(pid: pid_t, candidates: [CGWindowID], superseded: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(searchTimeLimit)
+        let shortlist = Array(candidates.prefix(maxCandidates))
+        for strict in [true, false] {
+            for window in shortlist {
+                guard Date() < deadline else { return false }
+                guard let element = windowElement(pid: pid, window: window), isRealWindow(element, strict: strict) else { continue }
+                if raise(window: window, pid: pid, superseded: superseded) { return true }
+            }
+        }
+        return false
+    }
+
+    /// 取窗口对应的辅助功能元素：先看缓存，没有再去找。
+    private static func windowElement(pid: pid_t, window: CGWindowID) -> AXUIElement? {
+        if let cached = elementCache[window], cached.pid == pid { return cached.element }
+        guard let element = axWindow(pid: pid, window: window) else { return nil }
+        if elementCache.count > 64 { elementCache.removeAll() }
+        elementCache[window] = (pid, element)
+        return element
+    }
+
+    /// 把一个窗口提到最前面。窗口在别的桌面、需要真的切过去时，按“看结果”的办法确认切成功了再返回。
+    private static func raise(window: CGWindowID, pid: pid_t, superseded: () -> Bool) -> Bool {
+        let target = SkyLight.spaces(of: window).first
+        // 没有正在进行的切换、窗口又已经在屏幕上（比如在另一块屏幕的当前桌面），就不需要切桌面。
+        let needsSwitch = target != nil && target != effectiveSpace()
+            && !(pendingSpace == nil && isOnScreen(window, pid: pid))
+        guard needsSwitch, let target else {
+            guard let element = windowElement(pid: pid, window: window) else { return false }
+            if focus(pid: pid, window: window, element: element) { return true }
+            elementCache[window] = nil   // 元素可能已经失效，下次重新找
+            return false
+        }
+        // 上一次切桌面还没收到“切完了”的信号：先等信号，不是等固定时间。
+        if let pending = pendingSpace {
+            switch SpaceWatcher.waitUntil(timeout: spaceSwitchTimeout, poll: 0.05, superseded: superseded,
+                                          { SkyLight.activeSpace() == pending.id }) {
+            case .superseded: return true          // 留着 pendingSpace，更新的那次点击会自己去等
+            case .reached, .timedOut: pendingSpace = nil
+            }
+        }
+        let wasFront = frontmostPID() == pid
+        for attempt in 0..<maxRaiseAttempts {
+            if attempt > 0 { Thread.sleep(forTimeInterval: retryBackoff) }
+            // 元素在缓存里失效了就重新找；请求发不出去多半是系统正忙，不是彻底失败，稍后重发。
+            guard let element = windowElement(pid: pid, window: window),
+                  focus(pid: pid, window: window, element: element) else {
+                elementCache[window] = nil
+                continue
+            }
+            pendingSpace = (target, Date())
+            // 1) 请求被接受了吗：目标 App 很快会变成前台。没变，多半是系统在动画中把请求丢了，马上重发。
+            //    （目标 App 本来就在前台时，这个检查说明不了什么，直接看第 2 步。）
+            if !wasFront {
+                switch SpaceWatcher.waitUntil(timeout: acceptTimeout, poll: 0.01, superseded: superseded,
+                                              { frontmostPID() == pid || SkyLight.activeSpace() == target }) {
+                case .superseded: return true
+                case .timedOut: continue
+                case .reached: break
+                }
+            }
+            // 2) 等系统“切完了”。
+            switch SpaceWatcher.waitUntil(timeout: spaceSwitchTimeout, poll: 0.05, superseded: superseded,
+                                          { SkyLight.activeSpace() == target }) {
+            case .reached: pendingSpace = nil; return true
+            case .superseded: return true          // 更新的点击取代了它，让它接着处理，它会先等这次切完
+            case .timedOut: continue
+            }
+        }
+        pendingSpace = nil
+        return false
+    }
+
+    /// 目前的前台 App（在主线程上读，`NSWorkspace` 的状态不保证能在后台线程读）。
+    private static func frontmostPID() -> pid_t? {
+        DispatchQueue.main.sync { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+    }
+
+    private static func isOnScreen(_ window: CGWindowID, pid: pid_t) -> Bool {
+        normalWindows(of: pid, options: [.optionOnScreenOnly, .excludeDesktopElements]).contains(window)
+    }
+
+    private static func focus(pid: pid_t, window: CGWindowID, element: AXUIElement) -> Bool {
+        guard SkyLight.makeFront(pid: pid, window: window) else { return false }
+        AXUIElementSetMessagingTimeout(element, Float(raiseCallTimeout))
         return AXUIElementPerformAction(element, kAXRaiseAction as CFString) == .success
     }
 
@@ -120,14 +389,51 @@ enum AppSwitcher {
         // App 没有响应，就别再逐个试了。
         if result == .cannotComplete { return nil }
         for element in (value as? [AXUIElement]) ?? [] where AXPrivate.windowID(of: element) == window {
-            return element
+            return containingWindow(of: element) ?? element
         }
         // 标准接口只返回当前桌面的窗口；其他桌面的窗口要按元素编号逐个试（AltTab 同款做法，实测约 60–80ms）。
         for elementID in UInt64(0)..<1000 {
             guard let element = AXPrivate.element(pid: pid, elementID: elementID) else { continue }
-            if AXPrivate.windowID(of: element) == window { return element }
+            // 反查到的可能是窗口里的子元素，要取到窗口本身；取不到就继续找别的元素。
+            if AXPrivate.windowID(of: element) == window, let windowElement = containingWindow(of: element) {
+                return windowElement
+            }
         }
         return nil
+    }
+}
+
+// MARK: - “切完桌面了”的信号
+
+/// 系统切完桌面的官方信号：`NSWorkspace.activeSpaceDidChangeNotification`（公开 API，动画结束时发出）。
+/// 通知在主线程发，等待的一方在后台队列上：用信号量被通知唤醒，同时每 50ms 自己再核对一次系统报告的桌面，
+/// 防止漏掉通知。
+private enum SpaceWatcher {
+    enum Outcome { case reached, timedOut, superseded }
+
+    private static let signal = DispatchSemaphore(value: 0)
+    private static var observer: NSObjectProtocol?
+
+    /// 在主线程调用，重复调用无副作用。
+    static func start() {
+        guard observer == nil else { return }
+        observer = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { _ in signal.signal() }
+    }
+
+    /// 等 `condition` 变成 true。等到了返回 `.reached`；超时返回 `.timedOut`；
+    /// `superseded()` 变成 true（有更新的点击）立刻返回 `.superseded`。
+    /// 被“切完桌面了”的通知唤醒最快；最多睡 `poll` 秒就自己再核对一次，所以不依赖通知一定送到。
+    static func waitUntil(timeout: TimeInterval, poll: TimeInterval, superseded: () -> Bool,
+                          _ condition: () -> Bool) -> Outcome {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            if condition() { return .reached }
+            if superseded() { return .superseded }
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 { return .timedOut }
+            _ = signal.wait(timeout: .now() + min(remaining, poll))
+        }
     }
 }
 
@@ -139,6 +445,7 @@ private enum SkyLight {
     private typealias SetFrontFn = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, CGWindowID, UInt32) -> Int32
     private typealias PostEventFn = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UnsafeMutablePointer<UInt8>) -> Int32
     private typealias GetPSNFn = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
+    private typealias ActiveSpaceFn = @convention(c) (Int32) -> UInt64
 
     private static let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW)
     private static func symbol<T>(_ name: String, in lib: UnsafeMutableRawPointer?, as type: T.Type) -> T? {
@@ -147,14 +454,21 @@ private enum SkyLight {
 
     private static let mainConnection = symbol("SLSMainConnectionID", in: handle, as: MainConnectionFn.self)
     private static let copySpaces = symbol("SLSCopySpacesForWindows", in: handle, as: CopySpacesFn.self)
+    private static let activeSpaceFn = symbol("SLSGetActiveSpace", in: handle, as: ActiveSpaceFn.self)
     private static let setFront = symbol("_SLPSSetFrontProcessWithOptions", in: handle, as: SetFrontFn.self)
     private static let postEvent = symbol("SLPSPostEventRecordTo", in: handle, as: PostEventFn.self)
     private static let getPSN = symbol("GetProcessForPID", in: UnsafeMutableRawPointer(bitPattern: -2), as: GetPSNFn.self)
 
-    static let isAvailable = mainConnection != nil && copySpaces != nil && setFront != nil
+    static let isAvailable = mainConnection != nil && copySpaces != nil && setFront != nil && activeSpaceFn != nil
         && postEvent != nil && getPSN != nil && AXPrivate.isAvailable
 
     /// 窗口所在的桌面编号；最小化的窗口返回空。
+    /// 系统报告的当前桌面（切桌面动画期间还是旧的，见 `AppSwitcher.effectiveSpace`）。
+    static func activeSpace() -> UInt64? {
+        guard let mainConnection, let activeSpaceFn else { return nil }
+        return activeSpaceFn(mainConnection())
+    }
+
     static func spaces(of window: CGWindowID) -> [UInt64] {
         guard let mainConnection, let copySpaces else { return [] }
         let allSpaces: Int32 = 0x7

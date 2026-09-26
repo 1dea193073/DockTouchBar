@@ -4,7 +4,8 @@ import Foundation
 enum AppInfo {
     static let name = "DockTouchBar"
     static let author = "hooosberg"
-    static let websiteURL = URL(string: "https://hooosberg.com/")!
+    static let productPageURL = URL(string: "https://hooosberg.com/apps/docktouchbar")!
+    static let diaryURL = URL(string: "https://hooosberg.com/apps/docktouchbar/diary")!
     static let githubProfileURL = URL(string: "https://github.com/hooosberg")!
     static let repositoryURL = URL(string: "https://github.com/hooosberg/DockTouchBar")!
 

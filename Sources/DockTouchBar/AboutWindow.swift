@@ -104,8 +104,11 @@ private struct AboutView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.tr("作者：\(AppInfo.author)", "By \(AppInfo.author)")).font(.headline)
                 HStack(spacing: 18) {
-                    Link(destination: AppInfo.websiteURL) {
-                        Label(L10n.tr("官网 hooosberg.com", "Website hooosberg.com"), systemImage: "globe")
+                    Link(destination: AppInfo.productPageURL) {
+                        Label(L10n.tr("产品页", "Product page"), systemImage: "globe")
+                    }
+                    Link(destination: AppInfo.diaryURL) {
+                        Label(L10n.tr("开发日记", "Build diary"), systemImage: "book")
                     }
                     Link(destination: AppInfo.githubProfileURL) {
                         Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
