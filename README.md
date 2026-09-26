@@ -44,7 +44,7 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 **Elegant**
 
 - Feels like part of macOS: the same order, icons and running dots as your Dock, on the system's own Touch Bar scroller.
-- Gestures that stay out of your way: a tap acts immediately (it never waits to see whether a double-tap is coming), and long-press shows a quiet red progress bar you can back out of.
+- Gestures that stay out of your way: a tap acts immediately (it never waits to see whether a double-tap is coming), and long-press shows a quiet red progress bar under the icon, plus a "Closing …" countdown at the right edge of the Touch Bar so your finger never hides it. Release early to cancel.
 - Rapid taps feel right: the last tap always wins, and it never fights you. If the system drops a desktop switch or something steals focus, it quietly puts things right, and it stops the moment you touch the keyboard, mouse or trackpad.
 - Speaks your language (English / 简体中文) and asks for just one optional permission.
 
@@ -65,7 +65,7 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 |---|---|
 | **Tap** an icon | Switch to the app, or launch it. If its windows are on another desktop (Space), jump to that desktop |
 | **Double-tap** | Hide the app (same as ⌘H). Tap again to bring it back |
-| **Long-press** | Quit the app (same as ⌘Q). A red progress bar fills under the icon while you hold; release early and it counts as a tap. Finder can't be quit |
+| **Long-press** | Quit the app (same as ⌘Q). A red progress bar fills under the icon while you hold, and a shimmering "Closing …" countdown appears at the right edge of the Touch Bar; release early and it counts as a tap. Finder can't be quit |
 | **Swipe** | Scroll when the icons don't all fit |
 
 Menu bar settings:

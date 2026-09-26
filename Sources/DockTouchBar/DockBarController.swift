@@ -24,6 +24,9 @@ final class DockBarController: NSObject {
     private let scrubber: NSScrubber
     private let scrubberWidth: NSLayoutConstraint
     private let pressRecognizer = NSPressGestureRecognizer()
+    /// 装着 Dock 和右侧“正在关闭”提示的容器；宽度固定为整条 Touch Bar，Dock 靠左，提示靠右边缘。
+    private let container = NSView()
+    private let quitHint = QuitHintView()
 
     private lazy var touchBar: NSTouchBar = {
         let bar = NSTouchBar()
@@ -93,6 +96,23 @@ final class DockBarController: NSObject {
         layout.itemSpacing = 0
         scrubber.scrubberLayout = layout
         scrubberWidth.isActive = true
+
+        container.translatesAutoresizingMaskIntoConstraints = false
+        scrubber.translatesAutoresizingMaskIntoConstraints = false
+        quitHint.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(scrubber)
+        container.addSubview(quitHint)
+        NSLayoutConstraint.activate([
+            container.widthAnchor.constraint(equalToConstant: Metrics.maxDockWidth),
+            container.heightAnchor.constraint(equalToConstant: 30),
+            scrubber.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrubber.topAnchor.constraint(equalTo: container.topAnchor),
+            scrubber.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            quitHint.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            quitHint.topAnchor.constraint(equalTo: container.topAnchor),
+            quitHint.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            quitHint.widthAnchor.constraint(equalToConstant: QuitHintView.width),
+        ])
 
         pressRecognizer.target = self
         pressRecognizer.action = #selector(handlePress(_:))
@@ -223,6 +243,9 @@ final class DockBarController: NSObject {
             newPress.quitWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
             (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressProgress(duration: remaining)
+            let name = tile.url.flatMap { DockModel.runningApp(bundleID: tile.bundleID, url: $0)?.localizedName }
+                ?? tile.url?.deletingPathExtension().lastPathComponent ?? ""
+            quitHint.show(appName: name, duration: remaining)
         }
         press = newPress
     }
@@ -234,6 +257,7 @@ final class DockBarController: NSObject {
         press = current
         swallowTapsUntilRelease = true
         (scrubber.itemViewForItem(at: current.index) as? DockTileView)?.hidePressProgress()
+        quitHint.hide()
         AppSwitcher.quit(current.tile)
     }
 
@@ -262,6 +286,7 @@ final class DockBarController: NSObject {
     }
 
     private func stopPressProgress() {
+        quitHint.hide()
         guard let current = press else { return }
         current.quitWork?.cancel()
         press?.quitWork = nil
@@ -364,7 +389,7 @@ extension DockBarController: NSTouchBarDelegate {
     func touchBar(_ touchBar: NSTouchBar, makeItemForIdentifier identifier: NSTouchBarItem.Identifier) -> NSTouchBarItem? {
         guard identifier == dockID else { return nil }
         let item = NSCustomTouchBarItem(identifier: identifier)
-        item.view = scrubber
+        item.view = container
         return item
     }
 }
@@ -511,6 +536,149 @@ final class DockTileView: NSScrubberItemView {
         path.move(to: CGPoint(x: iconX + 2, y: 2))
         path.addLine(to: CGPoint(x: iconX + iconSize - 2, y: 2))
         progressLayer.path = path
+        CATransaction.commit()
+    }
+}
+
+
+// MARK: - 长按退出时右侧的提示
+
+/// 长按退出时，靠 Touch Bar 右边缘显示：“正在关闭 XX”、倒计时和进度条。
+/// 手指按在图标上会挡住图标下方的红条，这里给一个不会被挡住的地方。不接收触摸，不占用 Dock 的位置。
+/// 文字是白色，一道高光循环扫过（类似系统“滑动来解锁”的文字流光）；背景从右边缘向内渐变淡出。
+final class QuitHintView: NSView {
+    static let width: CGFloat = 260
+
+    private static let side: CGFloat = 16
+    private static let countdownWidth: CGFloat = 40
+    private static let barWidth: CGFloat = 170
+
+    private let glow = CAGradientLayer()
+    private let titleLayer = CATextLayer()
+    private let shimmerMask = CAGradientLayer()
+    private let countdownLayer = CATextLayer()
+    private let track = CALayer()
+    private let bar = CALayer()
+    private var timer: Timer?
+    private var deadline = Date()
+    private var appName = ""
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        alphaValue = 0
+        layer?.masksToBounds = true
+
+        // 右边缘偏深的红，向内逐渐透明。
+        glow.colors = [NSColor.clear.cgColor,
+                       NSColor(red: 0.42, green: 0.04, blue: 0.05, alpha: 0.55).cgColor,
+                       NSColor(red: 0.30, green: 0.02, blue: 0.03, alpha: 0.92).cgColor]
+        glow.locations = [0, 0.55, 1]
+        glow.startPoint = CGPoint(x: 0, y: 0.5)
+        glow.endPoint = CGPoint(x: 1, y: 0.5)
+
+        titleLayer.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        titleLayer.fontSize = 12
+        titleLayer.foregroundColor = NSColor.white.cgColor
+        titleLayer.alignmentMode = .right
+        titleLayer.truncationMode = .end
+        // 高光遮罩：中间不透明、两边半透明的一条宽带，平移过文字就是流光。
+        shimmerMask.colors = [NSColor(white: 1, alpha: 0.42).cgColor, NSColor(white: 1, alpha: 0.42).cgColor,
+                              NSColor(white: 1, alpha: 1).cgColor,
+                              NSColor(white: 1, alpha: 0.42).cgColor, NSColor(white: 1, alpha: 0.42).cgColor]
+        shimmerMask.locations = [0, 0.38, 0.5, 0.62, 1]
+        shimmerMask.startPoint = CGPoint(x: 0, y: 0.5)
+        shimmerMask.endPoint = CGPoint(x: 1, y: 0.5)
+        titleLayer.mask = shimmerMask
+
+        countdownLayer.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        countdownLayer.fontSize = 12
+        countdownLayer.foregroundColor = NSColor.white.cgColor
+        countdownLayer.alignmentMode = .right
+
+        track.backgroundColor = NSColor(white: 1, alpha: 0.16).cgColor
+        bar.backgroundColor = NSColor(red: 1, green: 0.32, blue: 0.29, alpha: 1).cgColor
+        bar.anchorPoint = CGPoint(x: 0, y: 0.5)
+        for l in [track, bar] { l.cornerRadius = 1 }
+
+        for l in [glow, titleLayer, countdownLayer, track, bar] as [CALayer] {
+            l.contentsScale = 2
+            layer?.addSublayer(l)
+        }
+        titleLayer.contentsScale = 2
+        countdownLayer.contentsScale = 2
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private var titleFrame: CGRect {
+        let right = bounds.width - Self.side - Self.countdownWidth - 6
+        return CGRect(x: 30, y: 12, width: right - 30, height: 15)
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        glow.frame = bounds
+        titleLayer.frame = titleFrame
+        let w = titleFrame.width
+        shimmerMask.frame = CGRect(x: -w, y: 0, width: w * 3, height: titleFrame.height)
+        countdownLayer.frame = CGRect(x: bounds.width - Self.side - Self.countdownWidth, y: 12,
+                                      width: Self.countdownWidth, height: 15)
+        let barFrame = CGRect(x: bounds.width - Self.side - Self.barWidth, y: 5, width: Self.barWidth, height: 2)
+        track.frame = barFrame
+        bar.bounds = CGRect(x: 0, y: 0, width: barFrame.width, height: barFrame.height)
+        bar.position = CGPoint(x: barFrame.minX, y: barFrame.midY)
+        CATransaction.commit()
+    }
+
+    func show(appName: String, duration: TimeInterval) {
+        self.appName = appName
+        deadline = Date().addingTimeInterval(duration)
+        layoutSubtreeIfNeeded()
+        updateText()
+
+        let fill = CABasicAnimation(keyPath: "transform.scale.x")
+        fill.fromValue = 0
+        fill.toValue = 1
+        fill.duration = duration
+        bar.add(fill, forKey: "fill")
+
+        let w = titleFrame.width
+        let sweep = CABasicAnimation(keyPath: "transform.translation.x")
+        sweep.fromValue = -w * 0.8
+        sweep.toValue = w * 0.8
+        sweep.duration = 1.5
+        sweep.repeatCount = .infinity
+        sweep.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        shimmerMask.add(sweep, forKey: "sweep")
+
+        NSAnimationContext.runAnimationGroup { $0.duration = 0.18; animator().alphaValue = 1 }
+        timer?.invalidate()
+        let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.updateText() }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    func hide() {
+        timer?.invalidate()
+        timer = nil
+        guard alphaValue > 0 else { return }
+        NSAnimationContext.runAnimationGroup({ $0.duration = 0.18; animator().alphaValue = 0 }) { [weak self] in
+            self?.bar.removeAnimation(forKey: "fill")
+            self?.shimmerMask.removeAnimation(forKey: "sweep")
+        }
+    }
+
+    private func updateText() {
+        let left = max(deadline.timeIntervalSinceNow, 0)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        titleLayer.string = L10n.tr("正在关闭 \(appName)", "Closing \(appName)")
+        countdownLayer.string = String(format: "%.1fs", left)
         CATransaction.commit()
     }
 }

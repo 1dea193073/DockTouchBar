@@ -164,8 +164,22 @@ enum AppSwitcher {
     /// 注意 `hide()` 的返回值不可靠：实测窗口已经隐藏了它仍返回 false。
     static func hide(_ tile: DockTile) {
         guard let url = tile.url, let app = DockModel.runningApp(bundleID: tile.bundleID, url: url) else { return }
-        // 稍等一下：双击的第一下刚发出激活请求，App 如果在隐藏之后才处理它，会又显示出来。
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { _ = app.hide() }
+        // 隐藏也算一次新点击：双击第一下留下的切换、盯梢纠正立刻中止，否则它们会把刚隐藏的 App 又提回来。
+        clickLock.lock()
+        latestClick = (latestClick.serial + 1, -1)
+        clickLock.unlock()
+        // 排到队列后面：等在途的提升（已经被取代，很快退出）结束后再隐藏；隐藏后核对结果，没藏住就再来。
+        queue.async {
+            func attempt(_ left: Int) {
+                DispatchQueue.main.async {
+                    _ = app.hide()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        if !app.isHidden, left > 0 { attempt(left - 1) }
+                    }
+                }
+            }
+            attempt(2)
+        }
     }
 
     static var hasAccessibilityAccess: Bool {
