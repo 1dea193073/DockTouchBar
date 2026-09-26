@@ -38,6 +38,19 @@ enum PixelIcon {
         "###.......###",
     ])
 
+    /// 窗口最大化（13×9 格）：一个闭合的外框，里面一块几乎铺满的窗口。和居中的取景框一眼能分开。
+    static let maximize: CGImage? = image([
+        "#############",
+        "#...........#",
+        "#.#########.#",
+        "#.#########.#",
+        "#.#########.#",
+        "#.#########.#",
+        "#.#########.#",
+        "#...........#",
+        "#############",
+    ])
+
     /// `#` 画成白色的一格，其他留空。
     private static func image(_ art: [String]) -> CGImage? {
         guard let width = art.first?.count,
@@ -58,7 +71,7 @@ enum PixelIcon {
 /// 动画由系统在自己的进程里播放，App 本身不会被唤醒。
 final class PixelButton: NSButton {
     private let iconLayer = CALayer()
-    private let frames: [CGImage]
+    private var frames: [CGImage]
     private let iconSize: CGSize
     private let frameDuration: TimeInterval
 
@@ -93,10 +106,25 @@ final class PixelButton: NSButton {
         CATransaction.commit()
     }
 
+    /// 换一幅图（居中 ↔ 最大化）。大小和格数要和创建时一样。
+    func setFrames(_ frames: [CGImage]) {
+        self.frames = frames
+        iconLayer.removeAnimation(forKey: "frames")
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        iconLayer.contents = frames.first
+        CATransaction.commit()
+        startAnimating()
+    }
+
     /// 挂到 Touch Bar 上（重新挂上）时确保动画在播。
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil, frames.count > 1 else { return }
+        if window != nil { startAnimating() }
+    }
+
+    private func startAnimating() {
+        guard frames.count > 1 else { return }
         let animation = CAKeyframeAnimation(keyPath: "contents")
         animation.values = frames
         animation.calculationMode = .discrete

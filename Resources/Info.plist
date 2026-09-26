@@ -4,36 +4,36 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>DockTouchBar</string>
+	<key>CFBundleExecutable</key>
+	<string>DockTouchBar</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.maohuhu.docktouchbar</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>en</string>
 		<string>zh-Hans</string>
 	</array>
-	<key>CFBundleExecutable</key>
-	<string>DockTouchBar</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.maohuhu.docktouchbar</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>DockTouchBar</string>
-	<key>CFBundleDisplayName</key>
 	<string>DockTouchBar</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.8</string>
+	<string>1.9</string>
 	<key>CFBundleVersion</key>
-	<string>11</string>
+	<string>12</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
-	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 hooosberg. Free for personal, noncommercial use.</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 hooosberg. Free for personal, noncommercial use.</string>
 </dict>
 </plist>

@@ -129,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pinnedItem.title = L10n.tr("只显示正在运行的 App", "Only show running apps")
         pinnedItem.state = defaults.bool(forKey: Key.showPinned) ? .off : .on
 
-        centerButtonItem.title = L10n.tr("显示“窗口居中”按钮", "Show the center-window button")
+        centerButtonItem.title = L10n.tr("显示“窗口居中 / 最大化”按钮", "Show the center / maximize button")
         centerButtonItem.state = defaults.bool(forKey: Key.showCenterButton) ? .on : .off
 
         let height = defaults.integer(forKey: Key.centerHeight)

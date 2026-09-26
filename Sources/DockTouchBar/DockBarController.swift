@@ -104,10 +104,11 @@ final class DockBarController: NSObject {
     }
     private var quitHintPreview: DispatchWorkItem?
 
-    /// “窗口居中”按钮：显示与否，以及居中后窗口的大小（0 = 宽度和高度一样，即正方形）。
+    /// “窗口居中 / 最大化”按钮：显示与否，以及居中后窗口的大小（0 = 宽度和高度一样，即正方形）。
     var showsCenterButton = true {
         didSet {
             centerButton.isHidden = !showsCenterButton
+            updateWindowWatching()
             // 居中按钮不显示时，咖啡杯挪到最右边。
             if showsCenterButton {
                 coffeeToEdge.isActive = false
@@ -119,8 +120,15 @@ final class DockBarController: NSObject {
             updateDockWidth()
         }
     }
-    var centerHeightPercent = 80
-    var centerWidthPercent = 0
+    var centerHeightPercent = 80 {
+        didSet { if oldValue != centerHeightPercent { refreshCenterIcon() } }
+    }
+    var centerWidthPercent = 0 {
+        didSet { if oldValue != centerWidthPercent { refreshCenterIcon() } }
+    }
+    /// 按钮现在的图标，也就是再点一下会做什么：居中，或者（窗口已经是居中的样子时）最大化。
+    private var windowAction = WindowPlacer.Action.center
+    private let windowWatcher = WindowWatcher()
 
     override init() {
         let scrubber = NSScrubber()
@@ -159,6 +167,7 @@ final class DockBarController: NSObject {
         coffeeButton.setAccessibilityLabel(L10n.tr("暂时隐藏 Dock", "Hide the Dock for a moment"))
         centerButton.action = #selector(centerTapped)
         centerButton.setAccessibilityLabel(L10n.tr("窗口居中", "Center the window"))
+        windowWatcher.onChange = { [weak self] in self?.refreshCenterIcon() }
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(equalToConstant: Metrics.maxDockWidth),
             container.heightAnchor.constraint(equalToConstant: 30),
@@ -198,6 +207,7 @@ final class DockBarController: NSObject {
         TouchBarBridge.addTrayItem(trayItem)
         controlStripPID = Self.currentControlStripPID()
         startObserving()
+        updateWindowWatching()
         reload()
         present()
         // 刚登录时系统的 Touch Bar 进程可能还没就绪，稍后再确认一次。
@@ -210,6 +220,7 @@ final class DockBarController: NSObject {
         quitHintPreview?.cancel()
         cancelPress()
         stopObserving()
+        windowWatcher.stop()
         endPause(present: false)
         TouchBarBridge.dismiss(touchBar)
         TouchBarBridge.removeTrayItem(trayItem)
@@ -232,8 +243,41 @@ final class DockBarController: NSObject {
 
     /// 点右侧的咖啡杯按钮：先把 Touch Bar 还给系统（亮度、音量都回来了），之后自动恢复：
     /// 暂停时屏幕已经是黑的，就等亮度回来；否则过一会儿自动恢复。中途亮度又被调黑，就一直等到亮起来。
+    /// 第一下居中，再点一下最大化，再点又回到居中；窗口不是这两种样子（用户拖过、换了 App）就先居中。
     @objc private func centerTapped() {
-        WindowPlacer.centerFrontmost(heightPercent: centerHeightPercent, widthPercent: centerWidthPercent)
+        WindowPlacer.toggleFrontmost(heightPercent: centerHeightPercent, widthPercent: centerWidthPercent) { [weak self] in
+            self?.setWindowAction($0)
+        }
+    }
+
+    // MARK: - 让按钮的图标跟着窗口变
+
+    /// 盯着最前面的 App 的窗口（移动、改大小、换窗口都会通知），图标随时对得上。切到自己（比如开着菜单）时保持原样。
+    private func updateWindowWatching() {
+        guard isActive, showsCenterButton else {
+            windowWatcher.stop()
+            return
+        }
+        if let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            windowWatcher.watch(pid: app.processIdentifier)
+        }
+        refreshCenterIcon()
+    }
+
+    private func refreshCenterIcon() {
+        guard isActive, showsCenterButton else { return }
+        WindowPlacer.nextAction(heightPercent: centerHeightPercent, widthPercent: centerWidthPercent) { [weak self] in
+            self?.setWindowAction($0)
+        }
+    }
+
+    private func setWindowAction(_ action: WindowPlacer.Action) {
+        guard action != windowAction else { return }
+        windowAction = action
+        let image = action == .maximize ? PixelIcon.maximize : PixelIcon.center
+        centerButton.setFrames(image.map { [$0] } ?? [])
+        centerButton.setAccessibilityLabel(action == .maximize ? L10n.tr("窗口最大化", "Maximize the window")
+                                                                : L10n.tr("窗口居中", "Center the window"))
     }
 
     @objc private func coffeeTapped() {
@@ -444,7 +488,10 @@ final class DockBarController: NSObject {
 
     private func startObserving() {
         let workspace = NSWorkspace.shared.notificationCenter
-        observe(workspace, NSWorkspace.didActivateApplicationNotification) { $0.scheduleReload() }
+        observe(workspace, NSWorkspace.didActivateApplicationNotification) {
+            $0.scheduleReload()
+            $0.updateWindowWatching()
+        }
         observe(workspace, NSWorkspace.didWakeNotification) { $0.recover(readdTray: false) }
         observe(workspace, NSWorkspace.screensDidWakeNotification) { $0.recover(readdTray: false) }
         observe(workspace, NSWorkspace.sessionDidBecomeActiveNotification) { $0.recover(readdTray: false) }
