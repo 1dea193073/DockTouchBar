@@ -8,6 +8,13 @@ final class DockBarController: NSObject {
         static let iconSize: CGFloat = 24
         /// Touch Bar 占满整条时可用宽度约 1004pt。
         static let maxDockWidth: CGFloat = 1000
+        /// 最右侧固定的“设置”按钮宽度（Dock 图标区不会画到它下面）。
+        static let gearWidth: CGFloat = 44
+        /// 点设置按钮时屏幕亮度低于这个值算“被调黑了”，回到 `brightnessRecovered` 以上才自动恢复。
+        static let brightnessDark: Float = 0.08
+        static let brightnessRecovered: Float = 0.15
+        /// 没被调黑时，暂停多久后自动恢复。
+        static let pauseTimeout: TimeInterval = 20
         static let doubleTapInterval: TimeInterval = 0.35
         /// 按住多久开始显示“长按退出”的进度条；比这更短的按压都当作点击。
         static let pressArmDelay: TimeInterval = 0.35
@@ -27,6 +34,10 @@ final class DockBarController: NSObject {
     /// 装着 Dock 和右侧“正在关闭”提示的容器；宽度固定为整条 Touch Bar，Dock 靠左，提示靠右边缘。
     private let container = NSView()
     private let quitHint = QuitHintView()
+    private let gearButton = NSButton()
+    /// 临时暂停：用户点了右侧的设置按钮，让出 Touch Bar 给系统控制条（亮度、音量……）。
+    private var isPaused = false
+    private var pauseTimer: Timer?
 
     private lazy var touchBar: NSTouchBar = {
         let bar = NSTouchBar()
@@ -39,7 +50,7 @@ final class DockBarController: NSObject {
     private lazy var trayItem: NSCustomTouchBarItem = {
         let item = NSCustomTouchBarItem(identifier: trayID)
         let image = NSImage(systemSymbolName: "dock.rectangle", accessibilityDescription: nil) ?? NSImage()
-        item.view = NSButton(image: image, target: self, action: #selector(present))
+        item.view = NSButton(image: image, target: self, action: #selector(trayTapped))
         return item
     }()
 
@@ -102,13 +113,27 @@ final class DockBarController: NSObject {
         quitHint.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrubber)
         container.addSubview(quitHint)
+        container.addSubview(gearButton)
+        gearButton.translatesAutoresizingMaskIntoConstraints = false
+        let symbol = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        gearButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: L10n.tr("暂时显示系统控制条", "Show system controls"))?
+            .withSymbolConfiguration(symbol)
+        gearButton.isBordered = false
+        gearButton.imagePosition = .imageOnly
+        gearButton.contentTintColor = NSColor(white: 1, alpha: 0.7)
+        gearButton.target = self
+        gearButton.action = #selector(gearTapped)
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(equalToConstant: Metrics.maxDockWidth),
             container.heightAnchor.constraint(equalToConstant: 30),
             scrubber.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrubber.topAnchor.constraint(equalTo: container.topAnchor),
             scrubber.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            quitHint.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            gearButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            gearButton.topAnchor.constraint(equalTo: container.topAnchor),
+            gearButton.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            gearButton.widthAnchor.constraint(equalToConstant: Metrics.gearWidth),
+            quitHint.trailingAnchor.constraint(equalTo: gearButton.leadingAnchor),
             quitHint.topAnchor.constraint(equalTo: container.topAnchor),
             quitHint.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             quitHint.widthAnchor.constraint(equalToConstant: QuitHintView.width),
@@ -144,15 +169,59 @@ final class DockBarController: NSObject {
         isActive = false
         cancelPress()
         stopObserving()
+        endPause(present: false)
         TouchBarBridge.dismiss(touchBar)
         TouchBarBridge.removeTrayItem(trayItem)
     }
 
     // MARK: - 显示与恢复
 
-    @objc private func present() {
-        guard isActive else { return }
+    private func present() {
+        guard isActive, !isPaused else { return }
         TouchBarBridge.present(touchBar, trayIdentifier: trayID)
+    }
+
+    /// 系统控制条里的入口按钮：暂停中就恢复，否则重新显示。
+    @objc private func trayTapped() {
+        endPause(present: false)
+        present()
+    }
+
+    // MARK: - 临时暂停（兜底：屏幕被调黑时能用系统的亮度条）
+
+    /// 点右侧的设置按钮：先把 Touch Bar 还给系统（亮度、音量都回来了），之后自动恢复：
+    /// 暂停时屏幕已经是黑的，就等亮度回来；否则过一会儿自动恢复。中途亮度又被调黑，就一直等到亮起来。
+    @objc private func gearTapped() {
+        beginPause()
+    }
+
+    private func beginPause() {
+        guard isActive, !isPaused else { return }
+        isPaused = true
+        cancelPress()
+        let wasDark = ScreenBrightness.current.map { $0 < Metrics.brightnessDark } ?? false
+        let start = Date()
+        TouchBarBridge.dismiss(touchBar)
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let brightness = ScreenBrightness.current
+            let bright = brightness.map { $0 >= Metrics.brightnessRecovered } ?? true
+            let waited = Date().timeIntervalSince(start) >= Metrics.pauseTimeout
+            if bright && (wasDark || waited) { self.endPause(present: true) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pauseTimer = timer
+    }
+
+    private func endPause(present shouldPresent: Bool) {
+        pauseTimer?.invalidate()
+        pauseTimer = nil
+        guard isPaused else { return }
+        isPaused = false
+        if shouldPresent {
+            present()
+            presentAgainIfHidden(after: 1)
+        }
     }
 
     private func presentAgainIfHidden(after delay: TimeInterval) {
@@ -373,7 +442,7 @@ final class DockBarController: NSObject {
             // 图标位置变了，按压记录的序号已经不对，直接作废。
             cancelPress()
             let contentWidth = tiles.reduce(0) { $0 + Self.width(of: $1) }
-            scrubberWidth.constant = min(contentWidth, Metrics.maxDockWidth)
+            scrubberWidth.constant = min(contentWidth, Metrics.maxDockWidth - Metrics.gearWidth)
             scrubber.reloadData()
         }
     }

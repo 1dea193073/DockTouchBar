@@ -61,3 +61,26 @@ enum TouchBarBridge {
         NSTouchBar.perform(dismissSel, with: bar)
     }
 }
+
+
+/// 内置屏幕的亮度（0…1），用来判断屏幕是不是被调到了全黑。用系统私有的 DisplayServices，读不到就返回 nil。
+enum ScreenBrightness {
+    private typealias GetFn = @convention(c) (UInt32, UnsafeMutablePointer<Float>) -> Int32
+    private static let getFn: GetFn? = {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY),
+              let symbol = dlsym(handle, "DisplayServicesGetBrightness") else { return nil }
+        return unsafeBitCast(symbol, to: GetFn.self)
+    }()
+
+    static var current: Float? {
+        guard let getFn else { return nil }
+        var ids = [CGDirectDisplayID](repeating: 0, count: 8)
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(8, &ids, &count) == .success else { return nil }
+        for id in ids.prefix(Int(count)) where CGDisplayIsBuiltin(id) != 0 {
+            var value: Float = 0
+            if getFn(id, &value) == 0 { return value }
+        }
+        return nil
+    }
+}
