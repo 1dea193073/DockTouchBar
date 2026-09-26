@@ -78,7 +78,7 @@ Menu bar settings:
 
 - Show the center-window button, and the size of the centered window (60–100% of the screen height; width same as height, or 50–100% of the screen width)
 
-- Launch apps across desktops — ticked when Accessibility permission is granted; if not, click it to grant
+- Permissions — shows whether Accessibility is on, what it is used for (jumping to another desktop, center / maximize, closing just the current window, spotting a confirmation dialog) and takes you to System Settings to turn it on; nothing else needs a permission
 - Double-tap an icon: hide the app
 - Long-press an icon: quit the app (Off / 1 s / 2 s / 3 s / 5 s)
 - Long-press style: Spring / Summer / Autumn / Winter (the Touch Bar plays a short preview when you pick one)
@@ -133,7 +133,7 @@ Things to know:
 
 Jumping to a window on another desktop needs Accessibility permission. Without it everything else works, and tapping an app just brings it to the front without changing desktop.
 
-1. Menu bar icon → **Allow launching apps across desktops…** (once granted, the item reads **Launch apps across desktops** with a tick)
+1. Menu bar icon → **Permissions** → **Accessibility: off — click to turn it on…** (once granted it reads **on** with a tick)
 2. In System Settings → Privacy & Security → Accessibility, turn DockTouchBar on.
 
 If it still asks after you turned it on, the old entry is stale (this happens when the app's signature changed): select DockTouchBar in the list, click **−**, then add it again. Or run `tccutil reset Accessibility com.maohuhu.docktouchbar` and repeat step 1.

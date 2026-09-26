@@ -46,7 +46,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var languageItem = makeSubmenuItem(
         options: AppLanguage.allCases.indices.map { ($0, #selector(setLanguage(_:))) })
     private lazy var loginItem = makeItem(#selector(toggleLaunchAtLogin))
-    private lazy var accessibilityItem = makeItem(#selector(requestAccessibility))
+    /// “权限”子菜单：列出软件需要的权限、现在的状态，点一下去系统设置里开启。目前只有辅助功能一项。
+    private lazy var permissionsItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private lazy var accessibilityRow = makeItem(#selector(requestAccessibility))
+    private lazy var accessibilityUses: [NSMenuItem] = (0..<4).map { _ in
+        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        return item
+    }
+    private lazy var permissionsFootnote: NSMenuItem = {
+        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        return item
+    }()
     private lazy var aboutItem = makeItem(#selector(showAbout))
     private lazy var quitItem = makeItem(#selector(NSApplication.terminate(_:)), target: NSApp, keyEquivalent: "q")
 
@@ -73,7 +85,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(centerHeightItem)
         menu.addItem(centerWidthItem)
         menu.addItem(.separator())
-        menu.addItem(accessibilityItem)
+        let permissionsMenu = NSMenu()
+        permissionsMenu.autoenablesItems = false
+        permissionsMenu.addItem(accessibilityRow)
+        permissionsMenu.addItem(.separator())
+        accessibilityUses.forEach { permissionsMenu.addItem($0) }
+        permissionsMenu.addItem(.separator())
+        permissionsMenu.addItem(permissionsFootnote)
+        permissionsItem.submenu = permissionsMenu
+        menu.addItem(permissionsItem)
         menu.addItem(doubleTapItem)
         menu.addItem(longPressItem)
         menu.addItem(hintThemeItem)
@@ -178,12 +198,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         loginItem.title = L10n.tr("登录时自动启动", "Launch at login")
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
 
-        // 始终显示：有权限时打勾，点一下打开系统设置方便查看或关闭；没权限时点一下去授权。
+        // 权限：始终显示状态。有权限时打勾，点一下打开系统设置（方便查看或关闭）；没权限时点一下去开启。
         let hasAccess = AppSwitcher.hasAccessibilityAccess
-        accessibilityItem.title = hasAccess
-            ? L10n.tr("跨桌面启动应用", "Launch apps across desktops")
-            : L10n.tr("允许跨桌面启动应用…", "Allow launching apps across desktops…")
-        accessibilityItem.state = hasAccess ? .on : .off
+        permissionsItem.title = hasAccess
+            ? L10n.tr("权限：辅助功能已开启", "Permissions: Accessibility is on")
+            : L10n.tr("⚠︎ 权限：辅助功能未开启", "⚠︎ Permissions: Accessibility is off")
+        accessibilityRow.title = hasAccess
+            ? L10n.tr("辅助功能：已开启（点一下打开系统设置）", "Accessibility: on (click to open System Settings)")
+            : L10n.tr("辅助功能：未开启，点一下去开启…", "Accessibility: off — click to turn it on…")
+        accessibilityRow.state = hasAccess ? .on : .off
+        let uses = [
+            L10n.tr("用来：跨桌面切换到 App 的窗口", "Used to: jump to an app's window on another desktop"),
+            L10n.tr("用来：窗口居中、最大化", "Used to: center and maximize a window"),
+            L10n.tr("用来：长按只关当前窗口、发现确认框", "Used to: close just the current window on long-press, and spot a confirmation dialog"),
+            L10n.tr("没有它：其他功能照常，只是这几项不可用", "Without it: everything else works, only these are unavailable"),
+        ]
+        for (item, text) in zip(accessibilityUses, uses) { item.title = text }
+        permissionsFootnote.title = L10n.tr("除此之外，不需要其他任何权限", "No other permission is needed")
 
         aboutItem.title = L10n.tr("关于 \(AppInfo.name)…", "About \(AppInfo.name)…")
         quitItem.title = L10n.tr("退出", "Quit \(AppInfo.name)")
@@ -273,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// App 的窗口都在别的桌面时，要用辅助功能把窗口提到前面，系统才会切过去。
+    /// 去开启辅助功能：弹出系统的授权提示，并打开系统设置里的辅助功能页。
     @objc private func requestAccessibility() {
         AppSwitcher.requestAccessibilityAccess()
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {

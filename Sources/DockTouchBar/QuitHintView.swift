@@ -8,6 +8,11 @@ import AppKit
 /// 最下面直接是地面，进度条是地面上的一条分段像素条，一个小角色（小狗、帆船、狐狸、雪橇）沿着它往前跑，倒计时走完就到了；
 /// 背景是缓缓向后滚动的远景，天上飞过小动物，烟囱冒烟，花瓣、落叶、雪在空中飘。贴着 Touch Bar 边缘的一端最完整，往中间渐渐溶解成暗色。
 /// 松手取消就淡出，倒计时走完则闪一下再消失。具体配色、场景和角色由 `QuitHintTheme`（春夏秋冬）决定，菜单里可以切换。
+/// 长按要做的事，决定提示里的文字。
+enum QuitHintAction {
+    case quit, closeWindow, hide
+}
+
 final class QuitHintView: NSView {
     static let width: CGFloat = 440
     static let height: CGFloat = 30
@@ -78,6 +83,12 @@ final class QuitHintView: NSView {
     private var deadline = Date()
     private var appName = ""
     private var onLeft = false
+    /// 长按要做什么（决定文字）；在 `show` 之前设置。
+    var action = QuitHintAction.quit
+    /// 只显示一句话的“说明”模式：没有进度条和倒计时（做不了的事、做完但没成功的事）。
+    private var notice: String?
+    /// 倒计时走完、正在等结果（App 有没有真的退出）。这期间手指抬起等触发的普通淡出不打断。
+    private var isHolding = false
     /// 正在放收尾动画（约 1.8 秒）。这期间手指抬起等触发的普通淡出不打断它，下一次 show 才会重置。
     private var isFinishing = false
     /// 每次 show 加一；淡出结束后的清理只在这期间没有再次 show 时才做，免得清掉新一轮的动画。
@@ -329,6 +340,9 @@ final class QuitHintView: NSView {
         generation += 1
         // 上一次的收尾动画可能还没放完：立刻收掉。
         isFinishing = false
+        isHolding = false
+        notice = nil
+        setNoticeMode(false)
         finale.removeAllAnimations()
         finale.birthRate = 0
         resetVanish()
@@ -437,6 +451,8 @@ final class QuitHintView: NSView {
     /// 否则是中途松手取消，直接淡出。收尾放到一半时再来的普通 `hide()` 会被忽略。
     func hide(completed: Bool = false) {
         guard !isFinishing else { return }
+        if isHolding && !completed { return }
+        isHolding = false
         timer?.invalidate()
         timer = nil
         guard alphaValue > 0 else {
@@ -464,7 +480,7 @@ final class QuitHintView: NSView {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        titleLayer.string = L10n.tr("已关闭 \(appName)", "Closed \(appName)")
+        titleLayer.string = doneTitle
         countdownLayer.string = "✓"
         CATransaction.commit()
 
@@ -531,12 +547,67 @@ final class QuitHintView: NSView {
         CATransaction.commit()
     }
 
+    private var workingTitle: String {
+        switch action {
+        case .quit: return L10n.tr("正在关闭 \(appName)", "Closing \(appName)")
+        case .closeWindow: return L10n.tr("正在关闭 \(appName) 的窗口", "Closing \(appName)'s window")
+        case .hide: return L10n.tr("正在隐藏 \(appName)", "Hiding \(appName)")
+        }
+    }
+
+    private var doneTitle: String {
+        switch action {
+        case .quit: return L10n.tr("已关闭 \(appName)", "Closed \(appName)")
+        case .closeWindow: return L10n.tr("已关闭 \(appName) 的窗口", "Closed \(appName)'s window")
+        case .hide: return L10n.tr("已隐藏 \(appName)", "Hidden \(appName)")
+        }
+    }
+
+    /// 倒计时走完了，动作已经发出，等结果：先别让提示消失。之后必须调用 `hide(completed:)` 或 `showResultNotice`。
+    func holdForResult() {
+        isHolding = true
+    }
+
+    /// 只显示一句话（没有进度条、倒计时和小角色），几秒后淡出。
+    /// 用于做不了的事（一开始就说明），以及做完但没成功的事（比如 App 在等你确认）。
+    func showNotice(_ message: String, appName: String, onLeft: Bool) {
+        if alphaValue == 0 || timer == nil {
+            show(appName: appName, duration: 3600, onLeft: onLeft)
+        }
+        showResultNotice(message)
+    }
+
+    /// 把正在显示的提示换成一句话，几秒后淡出。
+    func showResultNotice(_ message: String) {
+        isHolding = false
+        notice = message
+        setNoticeMode(true)
+        updateText()
+        for emitter in [trail, rain, glints, smoke] { emitter.birthRate = 0 }
+        let token = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) { [weak self] in
+            guard let self, self.generation == token, self.notice != nil else { return }
+            self.hide()
+        }
+    }
+
+    /// 说明模式下藏起进度条、轨道、小角色和倒计时。
+    private func setNoticeMode(_ on: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for l in [bar, track, runner, trail, countdownLayer] as [CALayer] { l.isHidden = on }
+        CATransaction.commit()
+    }
+
     private func stopAnimations() {
         let layers: [CALayer] = [bar, glow, runner, trail, wanderer, far, flowRows, panel, flash, shimmerMask, finale] + fixedLayers
         layers.forEach { $0.removeAllAnimations() }
         for emitter in [finale, trail] { emitter.birthRate = 0 }
         resetVanish()
         isFinishing = false
+        isHolding = false
+        notice = nil
+        setNoticeMode(false)
     }
 
     /// 给 tools/render-preview 出图用：不跑动画，把画面定格在倒计时走到 `progress`（0…1）的样子。
@@ -553,7 +624,7 @@ final class QuitHintView: NSView {
         runner.position = CGPoint(x: barFrame.minX + Self.barWidth * progress, y: runnerFeet)
         let path = wandererPath
         wanderer.position = CGPoint(x: path.from + (path.to - path.from) * 0.55, y: actors.wandererY + 1)
-        titleLayer.string = L10n.tr("正在关闭 \(appName)", "Closing \(appName)")
+        titleLayer.string = workingTitle
         countdownLayer.string = String(format: "%.1fs", 3 * (1 - progress))
         CATransaction.commit()
         alphaValue = 1
@@ -563,8 +634,13 @@ final class QuitHintView: NSView {
         let left = max(deadline.timeIntervalSinceNow, 0)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        titleLayer.string = L10n.tr("正在关闭 \(appName)", "Closing \(appName)")
-        countdownLayer.string = String(format: "%.1fs", left)
+        if let notice {
+            titleLayer.string = notice
+            countdownLayer.string = ""
+        } else {
+            titleLayer.string = workingTitle
+            countdownLayer.string = String(format: "%.1fs", left)
+        }
         CATransaction.commit()
     }
 }

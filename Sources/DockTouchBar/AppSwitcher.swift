@@ -151,13 +151,6 @@ enum AppSwitcher {
         return latestClick.serial != serial && latestClick.pid != pid
     }
 
-    /// 长按：正常退出（等同 ⌘Q，有未保存内容的 App 会自己弹窗询问）。
-    static func quit(_ tile: DockTile) {
-        guard let url = tile.url, tile.bundleID != "com.apple.finder",
-              let app = DockModel.runningApp(bundleID: tile.bundleID, url: url) else { return }
-        app.terminate()
-    }
-
     /// 双击：隐藏 App（等同 ⌘H），再点一下图标就回来。
     /// 本来想做成最小化窗口，但开着“台前调度”时，辅助功能设置 AXMinimized、按最小化按钮都返回成功却不生效
     /// （macOS 27 实测，访达和计算器都一样）；隐藏在任何设置下都有效，也不需要权限。

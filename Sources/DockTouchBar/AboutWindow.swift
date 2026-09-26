@@ -162,8 +162,8 @@ private struct AboutView: View {
         VStack(alignment: .leading, spacing: 14) {
             section(L10n.tr("在图标上", "On the icons"), gestures)
             section(L10n.tr("右侧的按钮", "The buttons on the right"), buttons)
-            Text(L10n.tr("辅助功能里 DockTouchBar 的开关开着，但菜单里“跨桌面启动应用”没有打勾：在 系统设置 → 隐私与安全性 → 辅助功能 里删掉 DockTouchBar，再重新添加并打开。",
-                         "If DockTouchBar is switched on in Accessibility but “Launch apps across desktops” isn't ticked in the menu: remove DockTouchBar there, then add it again and turn it on."))
+            Text(L10n.tr("需要的权限只有“辅助功能”，在菜单栏的“权限”里能看到状态、点一下去开启。开关开着但菜单里仍显示“未开启”：在 系统设置 → 隐私与安全性 → 辅助功能 里删掉 DockTouchBar，再重新添加并打开。",
+                         "The only permission needed is Accessibility; its status is shown under “Permissions” in the menu, and one click takes you to turn it on. If it's switched on but the menu still says it's off: remove DockTouchBar in System Settings → Privacy & Security → Accessibility, then add it again and turn it on."))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

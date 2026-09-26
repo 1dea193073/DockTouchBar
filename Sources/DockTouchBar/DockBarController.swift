@@ -79,6 +79,8 @@ final class DockBarController: NSObject {
         var moved = false
         var completed = false
         var sawSelection = false
+        /// 长按走满后要做的事，长按开始时就定好了。
+        var plan = QuitPlan.quitApp
     }
     private var press: Press?
     private var suppressSelectionUntil = Date.distantPast
@@ -395,18 +397,40 @@ final class DockBarController: NSObject {
         let tile = tiles[index]
         var newPress = Press(index: index, tile: tile, start: point)
         lastTap = nil
-        // 访达不能退出，没在运行的也没什么可退出的；这两种松手后照常当作点击。
-        if longPressDuration > 0, tile.kind == .app, tile.isRunning, tile.bundleID != "com.apple.finder" {
-            let remaining = max(longPressDuration - Metrics.pressArmDelay, 0.1)
-            let work = DispatchWorkItem { [weak self] in self?.completePress() }
-            newPress.quitWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
-            (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressProgress(duration: remaining)
-            let name = tile.url.flatMap { DockModel.runningApp(bundleID: tile.bundleID, url: $0)?.localizedName }
-                ?? tile.url?.deletingPathExtension().lastPathComponent ?? ""
-            showQuitHint(forItemAt: index, appName: name, duration: remaining)
+        // 没在运行的没什么可退出的，松手后照常当作点击（启动它）。
+        if longPressDuration > 0, tile.kind == .app, tile.isRunning, let url = tile.url,
+           let app = DockModel.runningApp(bundleID: tile.bundleID, url: url) {
+            let name = app.localizedName ?? url.deletingPathExtension().lastPathComponent
+            let plan = QuitPlanner.plan(for: app)
+            newPress.plan = plan
+            if case .notice(let message) = plan {
+                // 做不了：直接说明情况，这次长按不再当作点击。
+                newPress.completed = true
+                swallowTapsUntilRelease = true
+                showQuitNotice(forItemAt: index, message: message, appName: name)
+            } else {
+                let remaining = max(longPressDuration - Metrics.pressArmDelay, 0.1)
+                let work = DispatchWorkItem { [weak self] in self?.completePress() }
+                newPress.quitWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
+                (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressProgress(duration: remaining)
+                switch plan {
+                case .closeWindow: quitHint.action = .closeWindow
+                case .hideApp: quitHint.action = .hide
+                default: quitHint.action = .quit
+                }
+                showQuitHint(forItemAt: index, appName: name, duration: remaining)
+            }
         }
         press = newPress
+    }
+
+    /// 只显示一句话的提示（做不了的事）。位置规则和倒计时提示一样。
+    private func showQuitNotice(forItemAt index: Int, message: String, appName: String) {
+        let tileMid = scrubber.itemViewForItem(at: index).map { container.convert($0.bounds, from: $0).midX } ?? 0
+        let onLeft = tileMid > Metrics.maxDockWidth / 2
+        quitHintLeading.constant = onLeft ? 0 : Metrics.maxDockWidth - QuitHintView.width
+        quitHint.showNotice(message, appName: appName, onLeft: onLeft)
     }
 
     /// 在菜单里换了风格后，在 Touch Bar 上演示一遍长按提示（走一个 2.5 秒的倒计时）。
@@ -441,8 +465,29 @@ final class DockBarController: NSObject {
         press = current
         swallowTapsUntilRelease = true
         (scrubber.itemViewForItem(at: current.index) as? DockTileView)?.hidePressProgress()
-        quitHint.hide(completed: true)
-        AppSwitcher.quit(current.tile)
+        guard let url = current.tile.url,
+              let app = DockModel.runningApp(bundleID: current.tile.bundleID, url: url) else {
+            quitHint.hide(completed: true)
+            return
+        }
+        let name = app.localizedName ?? url.deletingPathExtension().lastPathComponent
+        let tile = current.tile
+        // 动作发出去以后，看结果再决定怎么收尾：成功了放结尾动画；没成功（App 在等你确认，或者没有响应）就切到它那边，
+        // 让你亲眼看到问题，并且说明情况。
+        quitHint.holdForResult()
+        QuitPlanner.perform(current.plan, on: app) { [weak self] outcome in
+            guard let self else { return }
+            switch outcome {
+            case .done:
+                self.quitHint.hide(completed: true)
+            case .needsAnswer:
+                AppSwitcher.switchTo(tile)
+                self.quitHint.showResultNotice(L10n.tr("\(name) 在等你确认，已切换过去", "\(name) needs your answer — switched to it"))
+            case .stillOpen:
+                AppSwitcher.switchTo(tile)
+                self.quitHint.showResultNotice(L10n.tr("\(name) 还没有关闭，已切换过去", "\(name) hasn't closed — switched to it"))
+            }
+        }
     }
 
     /// 松手：长按已完成就吞掉这次点击；没到时间又没滑动，就当作一次普通点击。
