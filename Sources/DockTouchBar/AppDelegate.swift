@@ -1,7 +1,7 @@
 import AppKit
 import ServiceManagement
 
-/// 菜单栏图标 + 设置：开/关、小眼睛临时隐藏时长、只显示正在运行的 App、跨桌面、双击隐藏、长按退出的时长、语言、登录时启动、关于。
+/// 菜单栏图标 + 设置：开/关、咖啡杯临时隐藏时长、窗口居中按钮及窗口大小、只显示正在运行的 App、跨桌面、双击隐藏、长按退出的时长和提示风格、语言、登录时启动、关于。
 /// 菜单文字全部在 `menuNeedsUpdate` 里按当前语言重新设置，所以切换语言后不用重启。
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private enum Key {
@@ -10,12 +10,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         static let doubleTapHide = "doubleTapHide"
         static let longPressSeconds = "longPressSeconds"
         static let hideSeconds = "hideSeconds"
+        static let showCenterButton = "showCenterButton"
+        static let centerHeight = "centerHeightPercent"
+        static let centerWidth = "centerWidthPercent"
     }
 
     /// 长按退出 App 的可选时长（秒），0 = 不启用。
     private static let longPressOptions = [0, 1, 2, 3, 5]
-    /// 点“小眼睛”后临时隐藏 Dock 的可选时长（秒）。
+    /// 点“咖啡杯”后临时隐藏 Dock 的可选时长（秒）。
     private static let hideOptions = [10, 20, 30, 60]
+    /// 居中后窗口的高度（占屏幕可用高度的百分比）。
+    private static let heightOptions = [60, 70, 80, 90, 100]
+    /// 居中后窗口的宽度：0 = 和高度一样（正方形），其余是占屏幕可用宽度的百分比。
+    private static let widthOptions = [0, 50, 60, 70, 80, 90, 100]
 
     private let dock = DockBarController()
     private let about = AboutWindowController()
@@ -25,10 +32,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var enabledItem = makeItem(#selector(toggleEnabled))
     private lazy var hideDurationItem = makeSubmenuItem(
         options: Self.hideOptions.map { ($0, #selector(setHideDuration(_:))) })
+    private lazy var centerButtonItem = makeItem(#selector(toggleCenterButton))
+    private lazy var centerHeightItem = makeSubmenuItem(
+        options: Self.heightOptions.map { ($0, #selector(setCenterHeight(_:))) })
+    private lazy var centerWidthItem = makeSubmenuItem(
+        options: Self.widthOptions.map { ($0, #selector(setCenterWidth(_:))) })
     private lazy var pinnedItem = makeItem(#selector(togglePinned))
     private lazy var doubleTapItem = makeItem(#selector(toggleDoubleTap))
     private lazy var longPressItem = makeSubmenuItem(
         options: Self.longPressOptions.map { ($0, #selector(setLongPress(_:))) })
+    private lazy var hintThemeItem = makeSubmenuItem(
+        options: QuitHintTheme.allCases.indices.map { ($0, #selector(setHintTheme(_:))) })
     private lazy var languageItem = makeSubmenuItem(
         options: AppLanguage.allCases.indices.map { ($0, #selector(setLanguage(_:))) })
     private lazy var loginItem = makeItem(#selector(toggleLaunchAtLogin))
@@ -44,7 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         defaults.register(defaults: [Key.enabled: true, Key.showPinned: true,
                                      Key.doubleTapHide: true, Key.longPressSeconds: 3,
-                                     Key.hideSeconds: 20])
+                                     Key.hideSeconds: 20, Key.showCenterButton: true,
+                                     Key.centerHeight: 80, Key.centerWidth: 0])
 
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -54,9 +69,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(hideDurationItem)
         menu.addItem(pinnedItem)
         menu.addItem(.separator())
+        menu.addItem(centerButtonItem)
+        menu.addItem(centerHeightItem)
+        menu.addItem(centerWidthItem)
+        menu.addItem(.separator())
         menu.addItem(accessibilityItem)
         menu.addItem(doubleTapItem)
         menu.addItem(longPressItem)
+        menu.addItem(hintThemeItem)
         menu.addItem(.separator())
         menu.addItem(languageItem)
         menu.addItem(loginItem)
@@ -72,6 +92,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         dock.showsPinnedApps = defaults.bool(forKey: Key.showPinned)
         dock.doubleTapHides = defaults.bool(forKey: Key.doubleTapHide)
         dock.longPressDuration = TimeInterval(defaults.integer(forKey: Key.longPressSeconds))
+        dock.quitHintTheme = QuitHintTheme.saved
+        dock.showsCenterButton = defaults.bool(forKey: Key.showCenterButton)
+        dock.centerHeightPercent = defaults.integer(forKey: Key.centerHeight)
+        dock.centerWidthPercent = defaults.integer(forKey: Key.centerWidth)
         dock.pauseDuration = TimeInterval(defaults.integer(forKey: Key.hideSeconds))
         applyEnabled()
     }
@@ -95,7 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         enabledItem.state = available && defaults.bool(forKey: Key.enabled) ? .on : .off
 
         let hideSeconds = defaults.integer(forKey: Key.hideSeconds)
-        hideDurationItem.title = L10n.tr("点小眼睛后临时隐藏：\(hideSeconds) 秒", "Hide for a moment after tapping the eye: \(hideSeconds) s")
+        hideDurationItem.title = L10n.tr("点咖啡杯后临时隐藏：\(hideSeconds) 秒", "Hide for a moment after tapping the coffee cup: \(hideSeconds) s")
         for option in hideDurationItem.submenu?.items ?? [] {
             option.title = L10n.tr("\(option.tag) 秒", "\(option.tag) s")
             option.state = option.tag == hideSeconds ? .on : .off
@@ -104,6 +128,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // 界面上是“只显示正在运行的 App”，存的仍是原来的 showPinned（取反），已有用户的设置不受影响。
         pinnedItem.title = L10n.tr("只显示正在运行的 App", "Only show running apps")
         pinnedItem.state = defaults.bool(forKey: Key.showPinned) ? .off : .on
+
+        centerButtonItem.title = L10n.tr("显示“窗口居中”按钮", "Show the center-window button")
+        centerButtonItem.state = defaults.bool(forKey: Key.showCenterButton) ? .on : .off
+
+        let height = defaults.integer(forKey: Key.centerHeight)
+        centerHeightItem.title = L10n.tr("居中窗口的高度：\(height)%", "Centered window height: \(height)%")
+        for option in centerHeightItem.submenu?.items ?? [] {
+            option.title = L10n.tr("屏幕高度的 \(option.tag)%", "\(option.tag)% of screen height")
+            option.state = option.tag == height ? .on : .off
+        }
+
+        let width = defaults.integer(forKey: Key.centerWidth)
+        centerWidthItem.title = L10n.tr("居中窗口的宽度：", "Centered window width: ")
+            + (width == 0 ? L10n.tr("与高度相同", "same as height") : "\(width)%")
+        for option in centerWidthItem.submenu?.items ?? [] {
+            option.title = option.tag == 0
+                ? L10n.tr("与高度相同（正方形）", "Same as height (square)")
+                : L10n.tr("屏幕宽度的 \(option.tag)%", "\(option.tag)% of screen width")
+            option.state = option.tag == width ? .on : .off
+        }
 
         doubleTapItem.title = L10n.tr("双击图标：隐藏 App", "Double-tap an icon: hide the app")
         doubleTapItem.state = defaults.bool(forKey: Key.doubleTapHide) ? .on : .off
@@ -114,6 +158,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for option in longPressItem.submenu?.items ?? [] {
             option.title = option.tag == 0 ? L10n.tr("不启用", "Off") : L10n.tr("按住 \(option.tag) 秒", "Hold \(option.tag) s")
             option.state = option.tag == seconds ? .on : .off
+        }
+
+        let theme = QuitHintTheme.saved
+        hintThemeItem.title = L10n.tr("长按提示风格：", "Long-press style: ") + theme.title
+        for option in hintThemeItem.submenu?.items ?? [] {
+            let candidate = QuitHintTheme.allCases[option.tag]
+            option.title = candidate.title
+            option.state = candidate == theme ? .on : .off
         }
 
         languageItem.title = L10n.tr("语言", "Language")
@@ -163,6 +215,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         dock.pauseDuration = TimeInterval(sender.tag)
     }
 
+    @objc private func toggleCenterButton() {
+        let show = !defaults.bool(forKey: Key.showCenterButton)
+        defaults.set(show, forKey: Key.showCenterButton)
+        dock.showsCenterButton = show
+        if show, !AppSwitcher.hasAccessibilityAccess { AppSwitcher.requestAccessibilityAccess() }
+    }
+
+    @objc private func setCenterHeight(_ sender: NSMenuItem) {
+        defaults.set(sender.tag, forKey: Key.centerHeight)
+        dock.centerHeightPercent = sender.tag
+    }
+
+    @objc private func setCenterWidth(_ sender: NSMenuItem) {
+        defaults.set(sender.tag, forKey: Key.centerWidth)
+        dock.centerWidthPercent = sender.tag
+    }
+
     @objc private func toggleDoubleTap() {
         let on = !defaults.bool(forKey: Key.doubleTapHide)
         defaults.set(on, forKey: Key.doubleTapHide)
@@ -172,6 +241,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func setLongPress(_ sender: NSMenuItem) {
         defaults.set(sender.tag, forKey: Key.longPressSeconds)
         dock.longPressDuration = TimeInterval(sender.tag)
+    }
+
+    /// 换风格后立刻在 Touch Bar 上演示一遍，不用真的去长按一个 App。
+    @objc private func setHintTheme(_ sender: NSMenuItem) {
+        let theme = QuitHintTheme.allCases[sender.tag]
+        UserDefaults.standard.set(theme.rawValue, forKey: QuitHintTheme.defaultsKey)
+        dock.quitHintTheme = theme
+        dock.previewQuitHint()
     }
 
     @objc private func setLanguage(_ sender: NSMenuItem) {

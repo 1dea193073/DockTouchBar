@@ -45,13 +45,13 @@ private struct AboutView: View {
                   detail: L10n.tr("隐藏这个 App（等同 ⌘H），再点一下就回来。",
                                   "Hide the app (same as ⌘H). Tap it again to bring it back.")),
             Usage(symbol: "power", title: L10n.tr("长按", "Long-press"),
-                  detail: L10n.tr("退出这个 App（等同 ⌘Q）。按住时图标下方出现红色进度条，走满就退出；中途松手算单击。时长可在菜单里设置。",
-                                  "Quit the app (same as ⌘Q). A red progress bar fills under the icon while you hold; release early to treat it as a tap. Duration is set in the menu.")),
+                  detail: L10n.tr("退出这个 App（等同 ⌘Q）。按住时图标下方出现进度条，走满就退出；中途松手算单击。时长和提示的季节风格（春夏秋冬）可在菜单里设置。",
+                                  "Quit the app (same as ⌘Q). A progress bar fills under the icon while you hold; release early to treat it as a tap. The duration and the seasonal look of the hint (spring, summer, autumn, winter) are set in the menu.")),
             Usage(symbol: "arrow.left.and.right", title: L10n.tr("左右滑动", "Swipe"),
                   detail: L10n.tr("图标放不下时滚动。", "Scroll when the icons don't all fit.")),
             Usage(symbol: "slider.horizontal.3", title: L10n.tr("调亮度、音量", "Brightness & volume"),
-                  detail: L10n.tr("点最右端的小眼睛，Dock 暂时隐藏、系统控制条回来，稍后自动恢复（时长在菜单里设置）；也可以在菜单里取消勾选“在 Touch Bar 上显示 Dock”。",
-                                  "Tap the eye at the right end to hide the Dock for a moment and bring back the system controls; it returns on its own (set the time in the menu). Or untick “Show Dock on Touch Bar” in the menu.")),
+                  detail: L10n.tr("点右侧的咖啡杯歇一会儿：Dock 暂时隐藏、系统控制条回来，稍后自动恢复（时长在菜单里设置）；也可以在菜单里取消勾选“在 Touch Bar 上显示 Dock”。",
+                                  "Tap the coffee cup on the right to take a break: the Dock hides for a moment and the system controls come back; it returns on its own (set the time in the menu). Or untick “Show Dock on Touch Bar” in the menu.")),
         ]
     }
 

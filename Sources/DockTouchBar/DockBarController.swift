@@ -8,9 +8,9 @@ final class DockBarController: NSObject {
         static let iconSize: CGFloat = 24
         /// Touch Bar 占满整条时可用宽度约 1004pt。
         static let maxDockWidth: CGFloat = 1000
-        /// 最右侧固定的“小眼睛”按钮宽度（Dock 图标区不会画到它下面）。
-        static let eyeWidth: CGFloat = 44
-        /// 点小眼睛时屏幕亮度低于这个值算“被调黑了”，回到 `brightnessRecovered` 以上才自动恢复。
+        /// 最右侧固定的按钮（“咖啡杯”和“窗口居中”）的宽度，Dock 图标区不会画到它们下面。
+        static let buttonWidth: CGFloat = 44
+        /// 点咖啡杯时屏幕亮度低于这个值算“被调黑了”，回到 `brightnessRecovered` 以上才自动恢复。
         static let brightnessDark: Float = 0.08
         static let brightnessRecovered: Float = 0.15
         static let doubleTapInterval: TimeInterval = 0.35
@@ -32,10 +32,18 @@ final class DockBarController: NSObject {
     /// 装着 Dock 和右侧“正在关闭”提示的容器；宽度固定为整条 Touch Bar，Dock 靠左，提示靠右边缘。
     private let container = NSView()
     private let quitHint = QuitHintView()
-    private let eyeButton = NSButton()
-    /// 临时暂停：用户点了右侧的小眼睛按钮，让出 Touch Bar 给系统控制条（亮度、音量……）。
+    /// 右侧的两个像素画按钮：咖啡杯（歇一会儿，把 Touch Bar 还给系统）在左，窗口居中在最右边。
+    private let coffeeButton = PixelButton(frames: PixelIcon.coffee, cells: (13, 11), frameDuration: 0.4)
+    private let centerButton = PixelButton(frames: PixelIcon.center.map { [$0] } ?? [], cells: (13, 9))
+    private let quitHintLeading: NSLayoutConstraint
+    /// 咖啡杯贴着居中按钮，或者（居中按钮隐藏时）贴着最右边。
+    private let coffeeToCenter: NSLayoutConstraint
+    private let coffeeToEdge: NSLayoutConstraint
+    /// 图标区内容的宽度（不含右侧按钮），按钮显示/隐藏时据此重算图标区可用宽度。
+    private var contentWidth: CGFloat = 0
+    /// 临时暂停：用户点了右侧的咖啡杯按钮，让出 Touch Bar 给系统控制条（亮度、音量……）。
     private var isPaused = false
-    /// 点“小眼睛”后暂时隐藏多久（秒）；如果屏幕已经被调黑，则不看时间，等亮度回来。
+    /// 点“咖啡杯”后暂时隐藏多久（秒）；如果屏幕已经被调黑，则不看时间，等亮度回来。
     var pauseDuration: TimeInterval = 20
     private var pauseTimer: Timer?
 
@@ -90,10 +98,37 @@ final class DockBarController: NSObject {
 
     var doubleTapHides = true
 
+    /// 长按退出提示的风格。
+    var quitHintTheme = QuitHintTheme.spring {
+        didSet { quitHint.theme = quitHintTheme }
+    }
+    private var quitHintPreview: DispatchWorkItem?
+
+    /// “窗口居中”按钮：显示与否，以及居中后窗口的大小（0 = 宽度和高度一样，即正方形）。
+    var showsCenterButton = true {
+        didSet {
+            centerButton.isHidden = !showsCenterButton
+            // 居中按钮不显示时，咖啡杯挪到最右边。
+            if showsCenterButton {
+                coffeeToEdge.isActive = false
+                coffeeToCenter.isActive = true
+            } else {
+                coffeeToCenter.isActive = false
+                coffeeToEdge.isActive = true
+            }
+            updateDockWidth()
+        }
+    }
+    var centerHeightPercent = 80
+    var centerWidthPercent = 0
+
     override init() {
         let scrubber = NSScrubber()
         self.scrubber = scrubber
         self.scrubberWidth = scrubber.widthAnchor.constraint(equalToConstant: 0)
+        self.quitHintLeading = quitHint.leadingAnchor.constraint(equalTo: container.leadingAnchor)
+        self.coffeeToCenter = coffeeButton.trailingAnchor.constraint(equalTo: centerButton.leadingAnchor)
+        self.coffeeToEdge = coffeeButton.trailingAnchor.constraint(equalTo: container.trailingAnchor)
         super.init()
 
         scrubber.dataSource = self
@@ -112,28 +147,33 @@ final class DockBarController: NSObject {
         scrubber.translatesAutoresizingMaskIntoConstraints = false
         quitHint.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrubber)
+        container.addSubview(coffeeButton)
+        container.addSubview(centerButton)
+        // 提示要盖在右侧两个按钮上面：只是个临时提示，让它顶到最边上。
         container.addSubview(quitHint)
-        container.addSubview(eyeButton)
-        eyeButton.translatesAutoresizingMaskIntoConstraints = false
-        let symbol = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
-        eyeButton.image = NSImage(systemSymbolName: "eye", accessibilityDescription: L10n.tr("暂时隐藏 Dock", "Hide the Dock for a moment"))?
-            .withSymbolConfiguration(symbol)
-        eyeButton.isBordered = false
-        eyeButton.imagePosition = .imageOnly
-        eyeButton.contentTintColor = NSColor(white: 1, alpha: 0.7)
-        eyeButton.target = self
-        eyeButton.action = #selector(eyeTapped)
+        for button in [coffeeButton, centerButton] {
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.target = self
+        }
+        coffeeButton.action = #selector(coffeeTapped)
+        coffeeButton.setAccessibilityLabel(L10n.tr("暂时隐藏 Dock", "Hide the Dock for a moment"))
+        centerButton.action = #selector(centerTapped)
+        centerButton.setAccessibilityLabel(L10n.tr("窗口居中", "Center the window"))
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(equalToConstant: Metrics.maxDockWidth),
             container.heightAnchor.constraint(equalToConstant: 30),
             scrubber.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrubber.topAnchor.constraint(equalTo: container.topAnchor),
             scrubber.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            eyeButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            eyeButton.topAnchor.constraint(equalTo: container.topAnchor),
-            eyeButton.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            eyeButton.widthAnchor.constraint(equalToConstant: Metrics.eyeWidth),
-            quitHint.trailingAnchor.constraint(equalTo: eyeButton.leadingAnchor),
+            centerButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            coffeeToCenter,
+            coffeeButton.topAnchor.constraint(equalTo: container.topAnchor),
+            coffeeButton.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            coffeeButton.widthAnchor.constraint(equalToConstant: Metrics.buttonWidth),
+            centerButton.topAnchor.constraint(equalTo: container.topAnchor),
+            centerButton.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            centerButton.widthAnchor.constraint(equalToConstant: Metrics.buttonWidth),
+            quitHintLeading,
             quitHint.topAnchor.constraint(equalTo: container.topAnchor),
             quitHint.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             quitHint.widthAnchor.constraint(equalToConstant: QuitHintView.width),
@@ -167,6 +207,7 @@ final class DockBarController: NSObject {
     func stop() {
         guard isActive else { return }
         isActive = false
+        quitHintPreview?.cancel()
         cancelPress()
         stopObserving()
         endPause(present: false)
@@ -189,9 +230,13 @@ final class DockBarController: NSObject {
 
     // MARK: - 临时暂停（兜底：屏幕被调黑时能用系统的亮度条）
 
-    /// 点右侧的小眼睛按钮：先把 Touch Bar 还给系统（亮度、音量都回来了），之后自动恢复：
+    /// 点右侧的咖啡杯按钮：先把 Touch Bar 还给系统（亮度、音量都回来了），之后自动恢复：
     /// 暂停时屏幕已经是黑的，就等亮度回来；否则过一会儿自动恢复。中途亮度又被调黑，就一直等到亮起来。
-    @objc private func eyeTapped() {
+    @objc private func centerTapped() {
+        WindowPlacer.centerFrontmost(heightPercent: centerHeightPercent, widthPercent: centerWidthPercent)
+    }
+
+    @objc private func coffeeTapped() {
         beginPause()
     }
 
@@ -300,6 +345,7 @@ final class DockBarController: NSObject {
     }
 
     private func beginPress(at point: NSPoint) {
+        quitHintPreview?.cancel()
         cancelPress()
         guard let index = tileIndex(at: point) else { return }
         let tile = tiles[index]
@@ -314,9 +360,34 @@ final class DockBarController: NSObject {
             (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressProgress(duration: remaining)
             let name = tile.url.flatMap { DockModel.runningApp(bundleID: tile.bundleID, url: $0)?.localizedName }
                 ?? tile.url?.deletingPathExtension().lastPathComponent ?? ""
-            quitHint.show(appName: name, duration: remaining)
+            showQuitHint(forItemAt: index, appName: name, duration: remaining)
         }
         press = newPress
+    }
+
+    /// 在菜单里换了风格后，在 Touch Bar 上演示一遍长按提示（走一个 2.5 秒的倒计时）。
+    func previewQuitHint() {
+        guard isActive, !isPaused, press == nil else { return }
+        quitHintPreview?.cancel()
+        let duration: TimeInterval = 2.5
+        quitHintLeading.constant = Metrics.maxDockWidth - QuitHintView.width
+        quitHint.show(appName: AppInfo.name, duration: duration, onLeft: false)
+        let work = DispatchWorkItem { [weak self] in self?.quitHint.hide(completed: true) }
+        quitHintPreview = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
+    }
+
+    /// 提示默认贴 Touch Bar 最右边（盖住右侧的按钮）；手指按在右半边的图标上时放到最左边，免得挡住正在按的图标。
+    func showQuitHint(forItemAt index: Int, appName: String, duration: TimeInterval, progress: CGFloat? = nil) {
+        let tileMid = scrubber.itemViewForItem(at: index).map { container.convert($0.bounds, from: $0).midX } ?? 0
+        let onLeft = tileMid > Metrics.maxDockWidth / 2
+        quitHintLeading.constant = onLeft ? 0 : Metrics.maxDockWidth - QuitHintView.width
+        if let progress {
+            container.layoutSubtreeIfNeeded()
+            quitHint.freeze(progress: progress, appName: appName, onLeft: onLeft)
+        } else {
+            quitHint.show(appName: appName, duration: duration, onLeft: onLeft)
+        }
     }
 
     private func completePress() {
@@ -326,7 +397,7 @@ final class DockBarController: NSObject {
         press = current
         swallowTapsUntilRelease = true
         (scrubber.itemViewForItem(at: current.index) as? DockTileView)?.hidePressProgress()
-        quitHint.hide()
+        quitHint.hide(completed: true)
         AppSwitcher.quit(current.tile)
     }
 
@@ -441,10 +512,19 @@ final class DockBarController: NSObject {
         } else {
             // 图标位置变了，按压记录的序号已经不对，直接作废。
             cancelPress()
-            let contentWidth = tiles.reduce(0) { $0 + Self.width(of: $1) }
-            scrubberWidth.constant = min(contentWidth, Metrics.maxDockWidth - Metrics.eyeWidth)
+            contentWidth = tiles.reduce(0) { $0 + Self.width(of: $1) }
+            updateDockWidth()
             scrubber.reloadData()
         }
+    }
+
+    /// 右侧按钮占的宽度。
+    private var buttonsWidth: CGFloat {
+        Metrics.buttonWidth * (showsCenterButton ? 2 : 1)
+    }
+
+    private func updateDockWidth() {
+        scrubberWidth.constant = min(contentWidth, Metrics.maxDockWidth - buttonsWidth)
     }
 
     private static func width(of tile: DockTile) -> CGFloat {
@@ -610,144 +690,3 @@ final class DockTileView: NSScrubberItemView {
 }
 
 
-// MARK: - 长按退出时右侧的提示
-
-/// 长按退出时，靠 Touch Bar 右边缘显示：“正在关闭 XX”、倒计时和进度条。
-/// 手指按在图标上会挡住图标下方的红条，这里给一个不会被挡住的地方。不接收触摸，不占用 Dock 的位置。
-/// 文字是白色，一道高光循环扫过（类似系统“滑动来解锁”的文字流光）；背景从右边缘向内渐变淡出。
-final class QuitHintView: NSView {
-    static let width: CGFloat = 260
-
-    private static let side: CGFloat = 16
-    private static let countdownWidth: CGFloat = 40
-    private static let barWidth: CGFloat = 170
-
-    private let glow = CAGradientLayer()
-    private let titleLayer = CATextLayer()
-    private let shimmerMask = CAGradientLayer()
-    private let countdownLayer = CATextLayer()
-    private let track = CALayer()
-    private let bar = CALayer()
-    private var timer: Timer?
-    private var deadline = Date()
-    private var appName = ""
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        alphaValue = 0
-        layer?.masksToBounds = true
-
-        // 右边缘偏深的红，向内逐渐透明。
-        glow.colors = [NSColor.clear.cgColor,
-                       NSColor(red: 0.42, green: 0.04, blue: 0.05, alpha: 0.55).cgColor,
-                       NSColor(red: 0.30, green: 0.02, blue: 0.03, alpha: 0.92).cgColor]
-        glow.locations = [0, 0.55, 1]
-        glow.startPoint = CGPoint(x: 0, y: 0.5)
-        glow.endPoint = CGPoint(x: 1, y: 0.5)
-
-        titleLayer.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        titleLayer.fontSize = 12
-        titleLayer.foregroundColor = NSColor.white.cgColor
-        titleLayer.alignmentMode = .right
-        titleLayer.truncationMode = .end
-        // 高光遮罩：中间不透明、两边半透明的一条宽带，平移过文字就是流光。
-        shimmerMask.colors = [NSColor(white: 1, alpha: 0.42).cgColor, NSColor(white: 1, alpha: 0.42).cgColor,
-                              NSColor(white: 1, alpha: 1).cgColor,
-                              NSColor(white: 1, alpha: 0.42).cgColor, NSColor(white: 1, alpha: 0.42).cgColor]
-        shimmerMask.locations = [0, 0.38, 0.5, 0.62, 1]
-        shimmerMask.startPoint = CGPoint(x: 0, y: 0.5)
-        shimmerMask.endPoint = CGPoint(x: 1, y: 0.5)
-        titleLayer.mask = shimmerMask
-
-        countdownLayer.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-        countdownLayer.fontSize = 12
-        countdownLayer.foregroundColor = NSColor.white.cgColor
-        countdownLayer.alignmentMode = .right
-
-        track.backgroundColor = NSColor(white: 1, alpha: 0.16).cgColor
-        bar.backgroundColor = NSColor(red: 1, green: 0.32, blue: 0.29, alpha: 1).cgColor
-        bar.anchorPoint = CGPoint(x: 0, y: 0.5)
-        for l in [track, bar] { l.cornerRadius = 1 }
-
-        for l in [glow, titleLayer, countdownLayer, track, bar] as [CALayer] {
-            l.contentsScale = 2
-            layer?.addSublayer(l)
-        }
-        titleLayer.contentsScale = 2
-        countdownLayer.contentsScale = 2
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    private var titleFrame: CGRect {
-        let right = bounds.width - Self.side - Self.countdownWidth - 6
-        return CGRect(x: 30, y: 12, width: right - 30, height: 15)
-    }
-
-    override func layout() {
-        super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        glow.frame = bounds
-        titleLayer.frame = titleFrame
-        let w = titleFrame.width
-        shimmerMask.frame = CGRect(x: -w, y: 0, width: w * 3, height: titleFrame.height)
-        countdownLayer.frame = CGRect(x: bounds.width - Self.side - Self.countdownWidth, y: 12,
-                                      width: Self.countdownWidth, height: 15)
-        let barFrame = CGRect(x: bounds.width - Self.side - Self.barWidth, y: 5, width: Self.barWidth, height: 2)
-        track.frame = barFrame
-        bar.bounds = CGRect(x: 0, y: 0, width: barFrame.width, height: barFrame.height)
-        bar.position = CGPoint(x: barFrame.minX, y: barFrame.midY)
-        CATransaction.commit()
-    }
-
-    func show(appName: String, duration: TimeInterval) {
-        self.appName = appName
-        deadline = Date().addingTimeInterval(duration)
-        layoutSubtreeIfNeeded()
-        updateText()
-
-        let fill = CABasicAnimation(keyPath: "transform.scale.x")
-        fill.fromValue = 0
-        fill.toValue = 1
-        fill.duration = duration
-        bar.add(fill, forKey: "fill")
-
-        let w = titleFrame.width
-        let sweep = CABasicAnimation(keyPath: "transform.translation.x")
-        sweep.fromValue = -w * 0.8
-        sweep.toValue = w * 0.8
-        sweep.duration = 1.5
-        sweep.repeatCount = .infinity
-        sweep.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        shimmerMask.add(sweep, forKey: "sweep")
-
-        NSAnimationContext.runAnimationGroup { $0.duration = 0.18; animator().alphaValue = 1 }
-        timer?.invalidate()
-        let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.updateText() }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
-    }
-
-    func hide() {
-        timer?.invalidate()
-        timer = nil
-        guard alphaValue > 0 else { return }
-        NSAnimationContext.runAnimationGroup({ $0.duration = 0.18; animator().alphaValue = 0 }) { [weak self] in
-            self?.bar.removeAnimation(forKey: "fill")
-            self?.shimmerMask.removeAnimation(forKey: "sweep")
-        }
-    }
-
-    private func updateText() {
-        let left = max(deadline.timeIntervalSinceNow, 0)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        titleLayer.string = L10n.tr("正在关闭 \(appName)", "Closing \(appName)")
-        countdownLayer.string = String(format: "%.1fs", left)
-        CATransaction.commit()
-    }
-}
