@@ -90,6 +90,16 @@ Opening the app again from Applications while it is running pops up the menu.
 
 <img src="assets/about-en.png" alt="About window" width="360">
 
+## On a real MacBook Pro
+
+<p>
+  <img src="assets/photos/desk.jpg" alt="DockTouchBar on a MacBook Pro" width="420">
+  <img src="assets/photos/dock.jpg" alt="The Dock on the Touch Bar" width="140">
+  <img src="assets/photos/closing.jpg" alt="Long-press to quit, with the countdown at the right edge" width="140">
+</p>
+
+*Photos taken on the author's M1 MacBook Pro: the Dock on the Touch Bar, and the "Closing …" countdown while long-pressing to quit.*
+
 ## Requirements and tested environment
 
 | | |

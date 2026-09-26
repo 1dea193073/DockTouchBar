@@ -90,6 +90,16 @@ App 已经在运行时，再从「应用程序」打开它，会直接弹出这�
 
 <img src="assets/about-zh.png" alt="关于窗口" width="360">
 
+## 真机照片
+
+<p>
+  <img src="assets/photos/desk.jpg" alt="MacBook Pro 上的 DockTouchBar" width="420">
+  <img src="assets/photos/dock.jpg" alt="Touch Bar 上的 Dock" width="140">
+  <img src="assets/photos/closing.jpg" alt="长按退出时右边缘的倒计时" width="140">
+</p>
+
+*作者 M1 MacBook Pro 上的实拍：Touch Bar 上的 Dock，以及长按退出时的“正在关闭…”倒计时。*
+
 ## 使用环境和实测情况
 
 | | |
