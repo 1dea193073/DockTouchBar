@@ -27,7 +27,7 @@
 
 ![DockTouchBar on the Touch Bar](assets/touchbar.png)
 
-*A rendering of the Touch Bar, drawn by the app's own view code with stock macOS apps as samples. Order matches your Dock: Finder → pinned apps → divider → other running apps. A dot marks a running app; the brightest dot is the frontmost one. At the right end: the coffee cup (take a break) and the center-window button.*
+*A rendering of the Touch Bar, drawn by the app's own view code with stock macOS apps as samples. Order matches your Dock: Finder → pinned apps → divider → other running apps. A dot marks a running app; the brightest dot is the frontmost one. At the right end: the coffee cup (take a break) and the center / maximize button.*
 
 **If DockTouchBar is useful to you, a ⭐ Star on GitHub is the best way to say thanks.**
 
@@ -39,7 +39,7 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 
 - One job: your Dock on the Touch Bar. No widgets, no plugins.
 - A handful of switches in the menu bar, nothing else to configure.
-- About 3,400 lines of Swift in 13 files (roughly a tenth of it is pixel-art data), no third-party dependencies. The whole app is 1.5 MB.
+- About 4,200 lines of Swift in 15 files (a good part of it is pixel-art data), no third-party dependencies. The whole app is 1.7 MB.
 
 **Elegant**
 
@@ -50,14 +50,14 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 
 **Efficient**
 
-- Event-driven, no polling. Measured on an M1 MacBook Pro with the Dock showing and idle: **0.0% CPU**, **0 idle wakeups**, about **29 MB** of memory.\*
+- Event-driven, no polling. Measured on an M1 MacBook Pro with the Dock showing and idle: **0.0% CPU**, **0 idle wakeups**, about **32 MB** of memory.\*
 - Adapts to your Mac instead of using fixed delays: desktop switches wait for the system's own "finished" signal and check the result, so it stays correct whether animations are slow, off, or the machine is busy.
 - When apps start or quit, only what changed is updated and your scroll position is kept. Icons are rasterized once and cached.
 - Self-healing: re-attaches after sleep, screen unlock and Control Strip restarts, so you never have to relaunch it.
 - Fails safe: private APIs are resolved at runtime. If macOS removes one, that feature switches itself off instead of crashing.
 - Private: no network access, no analytics, no accounts. It only stores your preferences.
 
-<sub>\* Release build. CPU from five `top` samples 2 s apart (all 0.0%); wakeups from the kernel's per-process counters read 20 s apart, four times (0 idle wakeups every time; 0–7 interrupt wakeups, which come from system events, and no measurable CPU time in between); memory is the physical footprint from `footprint` (29 MB). The steam above the coffee cup is drawn by the system's render process, not by the app.</sub>
+<sub>\* Release build. CPU from five `top` samples 2 s apart (all 0.0%); wakeups from the kernel's per-process counters read 20 s apart, three times on 1.10 (0 idle wakeups and 0 interrupt wakeups every time; an earlier run on 1.8 saw 0–7 interrupt wakeups, from system events); memory is the physical footprint from `footprint` (32 MB). The steam above the coffee cup is drawn by the system's render process, not by the app.</sub>
 
 ## Features
 
@@ -65,10 +65,10 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 |---|---|
 | **Tap** an icon | Switch to the app, or launch it. If its windows are on another desktop (Space), jump to that desktop |
 | **Double-tap** | Hide the app (same as ⌘H). Tap again to bring it back |
-| **Long-press** | Quit the app (same as ⌘Q). A progress bar fills under the icon while you hold, and a shimmering "Closing …" countdown appears at the right edge of the Touch Bar over a pixel-art season (spring, summer, autumn or winter, your pick in the menu); release early and it counts as a tap. Finder can't be quit |
+| **Long-press** | Close the app, and always tell you what happened. A progress bar fills under the icon while you hold, and a "Closing …" countdown appears at the right edge over a pixel-art season (your pick in the menu); release early and it counts as a tap. If the app is in front with two or more windows it closes just the current window, otherwise it quits (same as ⌘Q). Finder can't be quit, so it is hidden (or its current window is closed when it is in front). If the app can't close because it is waiting for you (an "unsaved changes" sheet) or does not close, the Touch Bar switches to it, across desktops, and says so |
 | **Swipe** | Scroll when the icons don't all fit |
 | **Coffee cup** (right end, with animated steam) | Take a break: hide the Dock for a moment and hand the Touch Bar back to the system (brightness, volume). It returns on its own after 10–60 s |
-| **Center button** (far right) | Center the frontmost app's window on the screen, at the size you pick in the menu. Needs Accessibility permission |
+| **Center / maximize button** (far right) | Center the frontmost app's window; tap again to maximize it (fills the usable area, not native full screen), and again to center it. If you moved the window yourself or switched apps, it centers first, and the icon follows the window's current state. Needs Accessibility permission |
 
 Menu bar settings:
 
@@ -76,11 +76,11 @@ Menu bar settings:
 - Hide for a moment after tapping the coffee cup: 10 / 20 / 30 / 60 s
 - Only show running apps (off by default: pinned apps are shown too)
 
-- Show the center-window button, and the size of the centered window (60–100% of the screen height; width same as height, or 50–100% of the screen width)
+- Show the center / maximize button, and the size of the centered window (60–100% of the screen height; width same as height, or 50–100% of the screen width)
 
 - Permissions — shows whether Accessibility is on, what it is used for (jumping to another desktop, center / maximize, closing just the current window, spotting a confirmation dialog) and takes you to System Settings to turn it on; nothing else needs a permission
 - Double-tap an icon: hide the app
-- Long-press an icon: quit the app (Off / 1 s / 2 s / 3 s / 5 s)
+- Long-press an icon: close the app (Off / 1 s / 2 s / 3 s / 5 s)
 - Long-press style: Spring / Summer / Autumn / Winter (the Touch Bar plays a short preview when you pick one)
 
 - Language: Follow System / 简体中文 / English
@@ -91,9 +91,9 @@ Opening the app again from Applications while it is running pops up the menu.
 
 ![Long-press to quit, in four seasons](assets/seasons.png)
 
-*Long-press: the icon dims and the countdown appears at the right edge over a little pixel-art scene: spring, summer, autumn, winter (top to bottom). A small character (a dog, a sailboat, a fox, a sleigh) runs along the segmented progress bar; when it gets to the end, the app quits. Let go early and it counts as a tap. These are real captures of the running app.*
+*Long-press: the icon dims and the countdown appears at the right edge over a little pixel-art scene: spring, summer, autumn, winter (top to bottom). A small character (a dog, a sailboat, a fox, a sleigh) runs along the segmented progress bar; when it gets to the end, the app closes and a gust of petals, bubbles, leaves or snow sweeps over the scene and thins out. Let go early and it counts as a tap. These are real captures of the running app.*
 
-<img src="assets/about-en.png" alt="About window" width="360">
+<img src="assets/about-en.png" alt="About window" width="300"> <img src="assets/usage-en.png" alt="How to use page" width="300">
 
 ## On a real MacBook Pro
 
@@ -162,7 +162,7 @@ Without a signing certificate the build falls back to ad-hoc signing. That works
 ## Project layout
 
 ```
-Sources/DockTouchBar/   App source (13 files)
+Sources/DockTouchBar/   App source (15 files)
 Resources/              Info.plist, app icon
 scripts/                build.sh, install.sh, make-dmg.sh, make-icon.sh
 tools/                  Diagnostics: private-API check, Spaces/windows inspector, switch diagnostic, rapid-click stress test, offscreen preview, and render-seasons.sh (the README screenshots)
