@@ -61,6 +61,11 @@ final class QuitHintView: NSView {
     private let rain = CAEmitterLayer()
     /// 贴着地面一闪一闪的光点。
     private let glints = CAEmitterLayer()
+    /// 倒计时走完时的“收尾风暴”：放在最上面，一阵密集的漂浮物盖过整个画面，然后渐渐稀疏。
+    private let finale = CAEmitterLayer()
+    /// 收尾时场景先淡掉（content），文字稍晚一点淡掉（labels），只剩最上面的风暴。
+    private let content = CALayer()
+    private let labels = CALayer()
     private let wanderer = CALayer()
     private let runner = CALayer()
 
@@ -73,6 +78,8 @@ final class QuitHintView: NSView {
     private var deadline = Date()
     private var appName = ""
     private var onLeft = false
+    /// 正在放收尾动画（约 1.8 秒）。这期间手指抬起等触发的普通淡出不打断它，下一次 show 才会重置。
+    private var isFinishing = false
     /// 每次 show 加一；淡出结束后的清理只在这期间没有再次 show 时才做，免得清掉新一轮的动画。
     private var generation = 0
 
@@ -117,6 +124,8 @@ final class QuitHintView: NSView {
         trail.renderMode = .additive
         rain.emitterShape = .rectangle
         glints.emitterShape = .rectangle
+        finale.emitterShape = .rectangle
+        finale.birthRate = 0
         smoke.emitterShape = .point
         for emitter in [trail, rain, glints, smoke] { emitter.birthRate = 0 }
 
@@ -150,10 +159,16 @@ final class QuitHintView: NSView {
 
         track.backgroundColor = NSColor(red: 0.03, green: 0.04, blue: 0.06, alpha: 0.75).cgColor
 
-        for l in [backdrop, glints, rain, wanderer, track, bar, runner, trail, titleLayer, countdownLayer] as [CALayer] {
+        for l in [backdrop, glints, rain, wanderer, track, bar, runner, trail] as [CALayer] {
             l.contentsScale = 2
-            layer?.addSublayer(l)
+            content.addSublayer(l)
         }
+        for l in [titleLayer, countdownLayer] {
+            l.contentsScale = 2
+            labels.addSublayer(l)
+        }
+        finale.contentsScale = 2
+        for l in [content, labels, finale] as [CALayer] { layer?.addSublayer(l) }
         for l in [far, scene, flowTile, runner, wanderer, bar] { l.contentsScale = 2 }
         applyTheme()
     }
@@ -237,6 +252,8 @@ final class QuitHintView: NSView {
         let period = QuitHintTheme.farPeriod
 
         // 背景按“贴右边”画好，贴左边时整体镜像。
+        content.frame = b
+        labels.frame = b
         backdrop.frame = b
         backdrop.transform = onLeft ? CATransform3DMakeScale(-1, 1, 1) : CATransform3DIdentity
         panel.frame = CGRect(origin: .zero, size: b.size)
@@ -266,6 +283,10 @@ final class QuitHintView: NSView {
         rain.emitterPosition = CGPoint(x: x(atDistance: rainSpan / 2), y: 20)
         rain.emitterSize = CGSize(width: rainSpan, height: 16)
         glints.frame = b
+        finale.frame = b
+        let finaleSpan = b.width * 0.85
+        finale.emitterPosition = CGPoint(x: x(atDistance: finaleSpan / 2), y: b.height / 2)
+        finale.emitterSize = CGSize(width: finaleSpan, height: b.height)
         glints.emitterPosition = CGPoint(x: x(atDistance: Self.side + b.width * 0.2), y: 2)
         glints.emitterSize = CGSize(width: b.width * 0.4, height: 2)
 
@@ -306,6 +327,13 @@ final class QuitHintView: NSView {
 
     func show(appName: String, duration: TimeInterval, onLeft: Bool) {
         generation += 1
+        // 上一次的收尾动画可能还没放完：立刻收掉。
+        isFinishing = false
+        finale.removeAllAnimations()
+        finale.birthRate = 0
+        resetVanish()
+        trail.removeAnimation(forKey: "puff")
+        runner.removeAnimation(forKey: "hop")
         self.appName = appName
         self.onLeft = onLeft
         needsLayout = true
@@ -405,29 +433,110 @@ final class QuitHintView: NSView {
         timer = t
     }
 
-    /// `completed` 为 true 表示倒计时走完、App 要退出了：面板闪一下再淡出，像放完一个技能。
+    /// `completed` 为 true 表示倒计时走完、App 要退出了：放一段收尾动画（见 `finish()`）；
+    /// 否则是中途松手取消，直接淡出。收尾放到一半时再来的普通 `hide()` 会被忽略。
     func hide(completed: Bool = false) {
+        guard !isFinishing else { return }
         timer?.invalidate()
         timer = nil
-        for emitter in [trail, rain, glints, smoke] { emitter.birthRate = 0 }
-        guard alphaValue > 0 else { return }
-        let token = generation
-        if completed {
-            let burst = CAKeyframeAnimation(keyPath: "opacity")
-            burst.values = [0, 0.7, 0]
-            burst.keyTimes = [0, 0.25, 1]
-            burst.duration = 0.3
-            flash.add(burst, forKey: "burst")
+        guard alphaValue > 0 else {
+            for emitter in [trail, rain, glints, smoke] { emitter.birthRate = 0 }
+            return
         }
-        NSAnimationContext.runAnimationGroup({ $0.duration = completed ? 0.3 : 0.18; animator().alphaValue = 0 }) { [weak self] in
+        if completed {
+            finish()
+            return
+        }
+        for emitter in [trail, rain, glints, smoke] { emitter.birthRate = 0 }
+        let token = generation
+        NSAnimationContext.runAnimationGroup({ $0.duration = 0.18; animator().alphaValue = 0 }) { [weak self] in
             guard let self, self.generation == token else { return }
             self.stopAnimations()
         }
     }
 
+    /// 收尾（趣味优先），像一场转场：小角色停下脚步、原地蹦一下，落地扬起一小团尘土；
+    /// 一阵季节风暴（花瓣、落叶、雪、泡泡）涌到最前面，场景先淡掉，文字（已变成“已关闭 ✓”）稍晚一点淡掉，
+    /// 最后只剩漂浮物自己，越来越少，直到没有。
+    private func finish() {
+        isFinishing = true
+        let token = generation
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        titleLayer.string = L10n.tr("已关闭 \(appName)", "Closed \(appName)")
+        countdownLayer.string = "✓"
+        CATransaction.commit()
+
+        // 停下脚步，蹦一下。
+        runner.removeAnimation(forKey: "frames")
+        runner.removeAnimation(forKey: "bob")
+        let hop = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        hop.values = [0, 7, 0, 3, 0]
+        hop.keyTimes = [0, 0.3, 0.55, 0.78, 1]
+        hop.duration = 0.5
+        runner.add(hop, forKey: "hop")
+
+        // 落地那一下扬起一小团尘土（浪花、雪）。
+        let puff = CAKeyframeAnimation(keyPath: "birthRate")
+        puff.values = [0, 0, 6, 0]
+        puff.keyTimes = [0, 0.5, 0.55, 0.85]
+        puff.duration = 0.6
+        trail.birthRate = 0
+        trail.add(puff, forKey: "puff")
+
+        // 风暴在最上面：先猛地密起来，撑一会儿，再一点点稀疏下去，直到没有。
+        finale.emitterCells = theme.finaleCells(gust: onLeft ? 0 : .pi)
+        finale.birthRate = 0
+        let storm = CAKeyframeAnimation(keyPath: "birthRate")
+        storm.values = [0, 1, 1, 0.7, 0.35, 0.1, 0]
+        storm.keyTimes = [0, 0.08, 0.3, 0.5, 0.7, 0.88, 1]
+        storm.duration = 1.8
+        finale.add(storm, forKey: "storm")
+
+        // 场景先淡掉，文字晚一点。
+        vanish(content, after: 0.25, duration: 0.9)
+        vanish(labels, after: 0.75, duration: 0.8)
+
+        // 风暴散尽（最后一批粒子的寿命约 1.3 秒）就收工。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.1) { [weak self] in
+            guard let self, self.generation == token else { return }
+            self.alphaValue = 0
+            self.stopAnimations()
+        }
+    }
+
+    /// 让一层慢慢淡到全透明（先等 `delay` 秒）。
+    private func vanish(_ layer: CALayer, after delay: CFTimeInterval, duration: CFTimeInterval) {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.duration = duration
+        fade.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) + delay
+        fade.fillMode = .both
+        fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.opacity = 0
+        CATransaction.commit()
+        layer.add(fade, forKey: "vanish")
+    }
+
+    private func resetVanish() {
+        for l in [content, labels] { l.removeAnimation(forKey: "vanish") }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        content.opacity = 1
+        labels.opacity = 1
+        CATransaction.commit()
+    }
+
     private func stopAnimations() {
-        let layers: [CALayer] = [bar, glow, runner, trail, wanderer, far, flowRows, panel, flash, shimmerMask] + fixedLayers
+        let layers: [CALayer] = [bar, glow, runner, trail, wanderer, far, flowRows, panel, flash, shimmerMask, finale] + fixedLayers
         layers.forEach { $0.removeAllAnimations() }
+        for emitter in [finale, trail] { emitter.birthRate = 0 }
+        resetVanish()
+        isFinishing = false
     }
 
     /// 给 tools/render-preview 出图用：不跑动画，把画面定格在倒计时走到 `progress`（0…1）的样子。

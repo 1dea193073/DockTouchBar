@@ -303,6 +303,58 @@ extension QuitHintTheme {
         }
     }
 
+    /// 倒计时走完时的“收尾风暴”：一阵密集的漂浮物吹过整个画面，然后逐渐稀疏（发射器的密度由外面渐渐调到 0）。
+    /// `gust` 是风的方向（弧度）：贴右边时吹向中间（向左），贴左边时相反。夏天没有风，是一阵冒起来的泡泡和金色光点。
+    func finaleCells(gust: CGFloat) -> [CAEmitterCell] {
+        func blown(_ color: NSColor, rate: Float, speed: CGFloat, scale: CGFloat = 0.7) -> CAEmitterCell {
+            cell {
+                $0.birthRate = rate
+                $0.lifetime = 1.3; $0.lifetimeRange = 0.4
+                $0.velocity = speed; $0.velocityRange = speed / 2
+                $0.emissionLongitude = gust; $0.emissionRange = 0.9
+                $0.yAcceleration = -10
+                $0.scale = scale; $0.scaleRange = 0.2
+                $0.alphaSpeed = -0.55
+                $0.color = color.cgColor
+            }
+        }
+        switch self {
+        case .spring:
+            return [blown(rgb(1, 0.72, 0.84), rate: 56, speed: 46),
+                    blown(rgb(1, 0.92, 0.95), rate: 20, speed: 40, scale: 0.55),
+                    blown(rgb(1, 0.86, 0.35), rate: 10, speed: 34, scale: 0.5)]
+        case .summer:
+            let bubble = { (color: NSColor, rate: Float) in
+                self.cell {
+                    $0.birthRate = rate
+                    $0.lifetime = 1.4; $0.lifetimeRange = 0.4
+                    $0.velocity = 30; $0.velocityRange = 16
+                    $0.emissionLongitude = .pi / 2; $0.emissionRange = 1.1
+                    $0.scale = 0.8; $0.scaleRange = 0.3
+                    $0.alphaSpeed = -0.6
+                    $0.color = color.cgColor
+                }
+            }
+            let twinkle = cell {
+                $0.birthRate = 44
+                $0.lifetime = 0.7; $0.lifetimeRange = 0.3
+                $0.velocity = 6
+                $0.emissionLongitude = .pi / 2; $0.emissionRange = .pi
+                $0.scale = 0.8; $0.scaleRange = 0.25
+                $0.alphaSpeed = -1.4
+                $0.color = rgb(1, 0.86, 0.3).cgColor
+            }
+            return [bubble(rgb(0.9, 0.97, 1), 70), bubble(rgb(0.5, 0.85, 1), 36), twinkle]
+        case .autumn:
+            return [rgb(0.95, 0.50, 0.10), rgb(0.85, 0.25, 0.12), rgb(0.95, 0.75, 0.20)].map {
+                blown($0, rate: 22, speed: 50, scale: 0.85)
+            }
+        case .winter:
+            return [blown(rgb(0.95, 0.98, 1), rate: 80, speed: 55, scale: 0.55),
+                    blown(rgb(0.7, 0.9, 1), rate: 22, speed: 45, scale: 0.7)]
+        }
+    }
+
     /// 烟囱里冒出来的烟：慢慢往上飘、变大、变淡。
     func smokeCells() -> [CAEmitterCell] {
         let actors = self.actors
