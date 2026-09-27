@@ -472,8 +472,10 @@ final class DockBarController: NSObject {
         }
         let name = app.localizedName ?? url.deletingPathExtension().lastPathComponent
         let tile = current.tile
-        // 动作发出去以后，看结果再决定怎么收尾：成功了放结尾动画；没成功（App 在等你确认，或者没有响应）就切到它那边，
-        // 让你亲眼看到问题，并且说明情况。
+        // 动作发出去以后，看结果再决定怎么收尾：成功了放结尾动画；App 在等你确认时切到它那边，让你亲眼看到、能去回答；
+        // 单纯没等到变化（可能已经关了，只是比耐心等的时间慢，也可能是真的没响应）就只说明情况，不切过去——
+        // 切过去等于激活它，窗口都关完了的 App 一激活常常会自己弹一个新窗口，看起来就像“没关又开了一个”，
+        // 其实是我们等得不够久，误会了它。
         quitHint.holdForResult()
         QuitPlanner.perform(current.plan, on: app) { [weak self] outcome in
             guard let self else { return }
@@ -484,8 +486,7 @@ final class DockBarController: NSObject {
                 AppSwitcher.switchTo(tile)
                 self.quitHint.showResultNotice(L10n.tr("\(name) 在等你确认，已切换过去", "\(name) needs your answer — switched to it"))
             case .stillOpen:
-                AppSwitcher.switchTo(tile)
-                self.quitHint.showResultNotice(L10n.tr("\(name) 还没有关闭，已切换过去", "\(name) hasn't closed — switched to it"))
+                self.quitHint.showResultNotice(L10n.tr("\(name) 还没有关闭", "\(name) hasn't closed"))
             }
         }
     }

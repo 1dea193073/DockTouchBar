@@ -29,8 +29,11 @@ enum QuitOutcome {
 
 enum QuitPlanner {
     private static let finderID = "com.apple.finder"
-    /// 发出请求后，等多久还没变化就当作“没成功”。
-    private static let patience: TimeInterval = 1.4
+    /// 发出请求后，等多久还没变化就当作“没成功”。退出整个 App 和只关窗口都用这个：
+    /// App 退出前的收尾（写偏好设置、关子进程……）、关窗口的动画，都可能比这更慢，尤其是机器卡的时候；
+    /// 等太短会把“其实办成了，只是慢”误判成“没办成”——退出场景下这只是提示文字说错话，
+    /// 关窗口场景下还会因为接下来切回那个没了窗口的 App 而看着像“又开了一个”。
+    private static let patience: TimeInterval = 2.6
 
     // MARK: - 决定做什么
 
@@ -64,20 +67,20 @@ enum QuitPlanner {
             completion(.done)
         case .quitApp:
             guard app.terminate() else { completion(.stillOpen); return }
-            wait(until: { app.isTerminated }) { finished in
+            wait(until: { isGoneFromSight(app, pid: pid) }) { finished in
                 completion(finished ? .done : (hasPendingDialog(pid) ? .needsAnswer : .stillOpen))
             }
         case .closeWindow:
             let before = standardWindows(of: pid)?.count ?? 0
-            guard closeFocusedWindow(of: pid) else { completion(.stillOpen); return }
-            wait(until: { app.isTerminated || (standardWindows(of: pid)?.count ?? 0) < before }) { finished in
+            guard let closedWindow = closeFocusedWindow(of: pid) else { completion(.stillOpen); return }
+            wait(until: { app.isTerminated || !elementStillExists(closedWindow) || (standardWindows(of: pid)?.count ?? 0) < before }) { finished in
                 completion(finished ? .done : (hasPendingDialog(pid) ? .needsAnswer : .stillOpen))
             }
         }
     }
 
     /// 每 0.2 秒看一次 `condition`，成了就立刻回调 true；等满 `patience` 秒还没成就回调 false。
-    private static func wait(until condition: @escaping () -> Bool, then done: @escaping (Bool) -> Void) {
+    private static func wait(patience: TimeInterval = patience, until condition: @escaping () -> Bool, then done: @escaping (Bool) -> Void) {
         let deadline = Date().addingTimeInterval(patience)
         func check() {
             if condition() { done(true); return }
@@ -85,6 +88,14 @@ enum QuitPlanner {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: check)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: check)
+    }
+
+    /// 退出这个 App 是不是已经在用户眼前发生了：真退出了；或者它把自己藏起来了（类似访达的隐藏兜底）；
+    /// 或者当前桌面上已经没有它的标准窗口。不强求进程真的已经退出——有些 App（实测：企业 IM 一类）收到
+    /// 退出请求后窗口立刻就没了，但后台还要花几十秒断开长连接、写本地缓存才真正退出进程，早就超出任何
+    /// 合理的等待时间；对用户来说，窗口没了就是关掉了，不该因为它在后台收尾而被判定成“没关闭”。
+    private static func isGoneFromSight(_ app: NSRunningApplication, pid: pid_t) -> Bool {
+        app.isTerminated || app.isHidden || (standardWindows(of: pid)?.count ?? 0) == 0
     }
 
     // MARK: - 辅助功能
@@ -118,8 +129,9 @@ enum QuitPlanner {
         return false
     }
 
-    /// 按下当前窗口的红色关闭按钮（和用手点一样，有未保存内容会弹出确认）。
-    private static func closeFocusedWindow(of pid: pid_t) -> Bool {
+    /// 按下当前窗口的红色关闭按钮（和用手点一样，有未保存内容会弹出确认）。成功时把这个窗口的辅助功能元素
+    /// 带回去，用来之后核对它是不是真的没了（`elementStillExists`），比只看窗口数量变化更准。
+    private static func closeFocusedWindow(of pid: pid_t) -> AXUIElement? {
         let element = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(element, 0.25)
         var window: CFTypeRef?
@@ -128,11 +140,20 @@ enum QuitPlanner {
                let w = window, CFGetTypeID(w) == AXUIElementGetTypeID() { break }
             window = nil
         }
-        guard let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return false }
+        guard let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
+        let windowElement = window as! AXUIElement
         var button: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(window as! AXUIElement, kAXCloseButtonAttribute as CFString, &button) == .success,
-              let b = button, CFGetTypeID(b) == AXUIElementGetTypeID() else { return false }
-        return AXUIElementPerformAction(b as! AXUIElement, kAXPressAction as CFString) == .success
+        guard AXUIElementCopyAttributeValue(windowElement, kAXCloseButtonAttribute as CFString, &button) == .success,
+              let b = button, CFGetTypeID(b) == AXUIElementGetTypeID() else { return nil }
+        guard AXUIElementPerformAction(b as! AXUIElement, kAXPressAction as CFString) == .success else { return nil }
+        return windowElement
+    }
+
+    /// 这个窗口元素是不是还在：关掉的窗口再去读它的属性，系统会报“元素无效”。
+    /// 读不出结果（App 卡住、超时）时按“还在”处理，交给窗口数量那条线索兜底。
+    private static func elementStillExists(_ window: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(window, kAXRoleAttribute as CFString, &value) != .invalidUIElement
     }
 
     private static func string(_ element: AXUIElement, _ attribute: String) -> String? {

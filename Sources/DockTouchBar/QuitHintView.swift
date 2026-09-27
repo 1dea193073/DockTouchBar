@@ -547,14 +547,25 @@ final class QuitHintView: NSView {
         CATransaction.commit()
     }
 
+    /// 倒计时进行中：告诉用户现在该做什么（按住不放）、松手会发生什么。
     private var workingTitle: String {
         switch action {
-        case .quit: return L10n.tr("正在关闭 \(appName)", "Closing \(appName)")
-        case .closeWindow: return L10n.tr("正在关闭 \(appName) 的窗口", "Closing \(appName)'s window")
-        case .hide: return L10n.tr("正在隐藏 \(appName)", "Hiding \(appName)")
+        case .quit: return L10n.tr("按住不放，关闭 \(appName)", "Hold to close \(appName)")
+        case .closeWindow: return L10n.tr("按住不放，关闭 \(appName) 的窗口", "Hold to close \(appName)'s window")
+        case .hide: return L10n.tr("按住不放，隐藏 \(appName)", "Hold to hide \(appName)")
         }
     }
 
+    /// 倒计时走完、动作已经发出、等结果这段时间：不用再按着了，告诉用户可以松手，事情正在办。
+    private var releasingTitle: String {
+        switch action {
+        case .quit: return L10n.tr("请松手，正在关闭 \(appName)", "Let go — closing \(appName)")
+        case .closeWindow: return L10n.tr("请松手，正在关闭 \(appName) 的窗口", "Let go — closing \(appName)'s window")
+        case .hide: return L10n.tr("请松手，正在隐藏 \(appName)", "Let go — hiding \(appName)")
+        }
+    }
+
+    /// 结果出来了，确实办成了。
     private var doneTitle: String {
         switch action {
         case .quit: return L10n.tr("已关闭 \(appName)", "Closed \(appName)")
@@ -564,8 +575,10 @@ final class QuitHintView: NSView {
     }
 
     /// 倒计时走完了，动作已经发出，等结果：先别让提示消失。之后必须调用 `hide(completed:)` 或 `showResultNotice`。
+    /// 文字立刻换成“请松手”，不用等下一次 0.1 秒的定时刷新。
     func holdForResult() {
         isHolding = true
+        updateText()
     }
 
     /// 只显示一句话（没有进度条、倒计时和小角色），几秒后淡出。
@@ -636,6 +649,10 @@ final class QuitHintView: NSView {
         CATransaction.setDisableActions(true)
         if let notice {
             titleLayer.string = notice
+            countdownLayer.string = ""
+        } else if isHolding {
+            // 倒计时已经走完、动作发出去了，不用再倒数；数字留着反而像还要等这么久。
+            titleLayer.string = releasingTitle
             countdownLayer.string = ""
         } else {
             titleLayer.string = workingTitle
