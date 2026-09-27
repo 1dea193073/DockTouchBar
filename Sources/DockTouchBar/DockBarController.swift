@@ -41,8 +41,14 @@ final class DockBarController: NSObject {
     private let coffeeToEdge: NSLayoutConstraint
     /// 图标区内容的宽度（不含右侧按钮），按钮显示/隐藏时据此重算图标区可用宽度。
     private var contentWidth: CGFloat = 0
-    /// 临时暂停：用户点了右侧的咖啡杯按钮，让出 Touch Bar 给系统控制条（亮度、音量……）。
-    private var isPaused = false
+    /// 暂停的原因可以叠加：截图/录屏结束时，不能打断用户自己点咖啡杯设置的暂停时间。
+    private enum PauseReason: Hashable {
+        case coffee
+        case systemCapture
+        case functionRow
+    }
+    private var pauseReasons = Set<PauseReason>()
+    private var isPaused: Bool { !pauseReasons.isEmpty }
     /// 点“咖啡杯”后暂时隐藏多久（秒）；如果屏幕已经被调黑，则不看时间，等亮度回来。
     var pauseDuration: TimeInterval = 20
     private var pauseTimer: Timer?
@@ -69,6 +75,20 @@ final class DockBarController: NSObject {
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var runningAppsObservation: NSKeyValueObservation?
     private var controlStripPID: pid_t?
+    private lazy var systemTouchBarActivity = SystemTouchBarActivityMonitor { [weak self] isActive in
+        if isActive {
+            self?.beginPause(for: .systemCapture)
+        } else {
+            self?.endPause(for: .systemCapture, present: true)
+        }
+    }
+    private lazy var functionRowActivity = FunctionRowActivityMonitor { [weak self] isDown in
+        if isDown {
+            self?.beginPause(for: .functionRow)
+        } else {
+            self?.endPause(for: .functionRow, present: true)
+        }
+    }
 
     /// 正在进行的一次按压（从按住 `pressArmDelay` 秒开始，到松手结束）。
     private struct Press {
@@ -209,6 +229,8 @@ final class DockBarController: NSObject {
         TouchBarBridge.addTrayItem(trayItem)
         controlStripPID = Self.currentControlStripPID()
         startObserving()
+        systemTouchBarActivity.start()
+        functionRowActivity.start()
         updateWindowWatching()
         reload()
         present()
@@ -222,8 +244,10 @@ final class DockBarController: NSObject {
         quitHintPreview?.cancel()
         cancelPress()
         stopObserving()
+        systemTouchBarActivity.stop()
+        functionRowActivity.stop()
         windowWatcher.stop()
-        endPause(present: false)
+        clearPauses()
         TouchBarBridge.dismiss(touchBar)
         TouchBarBridge.removeTrayItem(trayItem)
     }
@@ -237,7 +261,7 @@ final class DockBarController: NSObject {
 
     /// 系统控制条里的入口按钮：暂停中就恢复，否则重新显示。
     @objc private func trayTapped() {
-        endPause(present: false)
+        endPause(for: .coffee, present: false)
         present()
     }
 
@@ -283,36 +307,46 @@ final class DockBarController: NSObject {
     }
 
     @objc private func coffeeTapped() {
-        beginPause()
+        beginPause(for: .coffee)
     }
 
-    private func beginPause() {
-        guard isActive, !isPaused else { return }
-        isPaused = true
+    private func beginPause(for reason: PauseReason) {
+        guard isActive, !pauseReasons.contains(reason) else { return }
+        let shouldDismiss = !isPaused
+        pauseReasons.insert(reason)
         cancelPress()
+        if shouldDismiss { TouchBarBridge.dismiss(touchBar) }
+        guard reason == .coffee else { return }
+
         let wasDark = ScreenBrightness.current.map { $0 < Metrics.brightnessDark } ?? false
         let start = Date()
-        TouchBarBridge.dismiss(touchBar)
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
             let brightness = ScreenBrightness.current
             let bright = brightness.map { $0 >= Metrics.brightnessRecovered } ?? true
             let waited = Date().timeIntervalSince(start) >= pauseDuration
-            if bright && (wasDark || waited) { self.endPause(present: true) }
+            if bright && (wasDark || waited) { self.endPause(for: .coffee, present: true) }
         }
         RunLoop.main.add(timer, forMode: .common)
         pauseTimer = timer
     }
 
-    private func endPause(present shouldPresent: Bool) {
-        pauseTimer?.invalidate()
-        pauseTimer = nil
-        guard isPaused else { return }
-        isPaused = false
-        if shouldPresent {
+    private func endPause(for reason: PauseReason, present shouldPresent: Bool) {
+        if reason == .coffee {
+            pauseTimer?.invalidate()
+            pauseTimer = nil
+        }
+        guard pauseReasons.remove(reason) != nil else { return }
+        if shouldPresent, !isPaused {
             present()
             presentAgainIfHidden(after: 1)
         }
+    }
+
+    private func clearPauses() {
+        pauseTimer?.invalidate()
+        pauseTimer = nil
+        pauseReasons.removeAll()
     }
 
     private func presentAgainIfHidden(after delay: TimeInterval) {
@@ -781,5 +815,3 @@ final class DockTileView: NSScrubberItemView {
         CATransaction.commit()
     }
 }
-
-

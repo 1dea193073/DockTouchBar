@@ -2,6 +2,7 @@ build/
 .build/
 .swiftpm/
 .DS_Store
+.codex/
 
 # 开发文档只保留在本地，不上传
 docs/

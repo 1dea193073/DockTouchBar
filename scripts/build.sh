@@ -14,6 +14,9 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="DockTouchBar"
 APP="build/$APP_NAME.app"
+# `build/` 只放中间产物；防止 Spotlight 把这里的 .app 当成第二个可启动应用。
+mkdir -p build
+touch build/.metadata_never_index
 
 if [ -z "${SIGN_IDENTITY:-}" ]; then
     IDENTITIES="$(security find-identity -v -p codesigning)"
