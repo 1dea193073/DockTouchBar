@@ -26,7 +26,7 @@
 </p>
 
 ![DockTouchBar on the Touch Bar](assets/touchbar-idle.gif)
-*Idle state: apps aligned to bottom with top-right running badge dots (red for frontmost, grey with outline for background); pixel-art coffee cup with live rising steam.*
+*Idle state: apps aligned to bottom with top-right active badge dot (red for frontmost app); pixel-art coffee cup with live rising steam.*
 
 ![Long-press to quit: four seasons animation](assets/touchbar-seasons.gif)
 *Long-press to quit: side-scrolling pixel-art countdown scenes across four seasons (spring running dog / summer sailing ship / autumn forest fox / winter sleigh ride). Release early to cancel, with seasonal finale burst.*

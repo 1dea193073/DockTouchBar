@@ -6,7 +6,7 @@ import SwiftUI
 final class AboutWindowController {
     private var window: NSWindow?
 
-    func show() {
+    func show(checkUpdates: Bool = false) {
         let window = self.window ?? makeWindow()
         self.window = window
         window.title = L10n.tr("关于 \(AppInfo.name)", "About \(AppInfo.name)")
@@ -18,10 +18,13 @@ final class AboutWindowController {
             NSApp.activate(ignoringOtherApps: true)
         }
         window.makeKeyAndOrderFront(nil)
+        if checkUpdates {
+            UpdateManager.shared.checkForUpdates(silent: false)
+        }
     }
 
     private func makeWindow() -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 640),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 680),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         return window
@@ -44,6 +47,7 @@ private struct AboutView: View {
     }
 
     @State private var page = Page.about
+    @ObservedObject private var updater = UpdateManager.shared
 
     private var gestures: [Usage] {
         [
@@ -99,24 +103,28 @@ private struct AboutView: View {
     // MARK: - 关于
 
     private var aboutPage: some View {
-        VStack(spacing: 6) {
-            Spacer(minLength: 24)
+        VStack(spacing: 5) {
+            Spacer(minLength: 16)
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
-                .frame(width: 96, height: 96)
-            Text(AppInfo.name).font(.title.weight(.bold)).padding(.top, 6)
+                .frame(width: 88, height: 88)
+            Text(AppInfo.name).font(.title.weight(.bold)).padding(.top, 4)
             Text(L10n.tr("版本 \(AppInfo.version)（\(AppInfo.build)）", "Version \(AppInfo.version) (\(AppInfo.build))"))
                 .font(.callout).foregroundStyle(.secondary)
+
+            // 自动检测与安装更新
+            updateCard
+
             Text(L10n.tr("简洁 · 优雅 · 高效", "Simple · Elegant · Efficient"))
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(Color.accentColor)
-                .padding(.top, 10)
+                .padding(.top, 6)
             Text(L10n.tr("把 Dock 放到 Touch Bar 上", "Your Dock on the Touch Bar"))
                 .font(.callout).foregroundStyle(.secondary)
 
-            Spacer(minLength: 24)
+            Spacer(minLength: 16)
             Divider().padding(.horizontal, 40)
-            Spacer(minLength: 18)
+            Spacer(minLength: 14)
 
             Text(L10n.tr("作者：\(AppInfo.author)", "By \(AppInfo.author)")).font(.headline)
             HStack(spacing: 18) {
@@ -130,30 +138,189 @@ private struct AboutView: View {
                     Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                 }
             }
-            .padding(.top, 4)
+            .padding(.top, 3)
             Text(L10n.tr("如果它对你有帮助，欢迎在 GitHub 上点一个 Star 支持一下。",
                          "If it helps you, a Star on GitHub would mean a lot."))
                 .font(.callout).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 10)
+                .padding(.top, 8)
             Link(destination: AppInfo.repositoryURL) {
                 Label(L10n.tr("在 GitHub 上点 Star", "Star on GitHub"), systemImage: "star.fill")
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(Color.accentColor.opacity(0.15), in: Capsule())
             }
-            .padding(.top, 4)
+            .padding(.top, 3)
 
-            Spacer(minLength: 18)
+            Spacer(minLength: 14)
             Text(L10n.tr("© 2026 \(AppInfo.author) · 个人使用免费，商业使用需另行授权",
                          "© 2026 \(AppInfo.author) · Free for personal use, commercial use requires a separate license"))
                 .font(.caption).foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 20)
+            Spacer(minLength: 16)
         }
         .padding(.horizontal, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            updater.checkForUpdates(silent: true)
+        }
+    }
+
+    @ViewBuilder
+    private var updateCard: some View {
+        switch updater.state {
+        case .idle:
+            Button {
+                updater.checkForUpdates(silent: false)
+            } label: {
+                Label(L10n.tr("检查更新", "Check for Updates"), systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .padding(.top, 2)
+
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(L10n.tr("正在检查新版本…", "Checking for updates…"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 3)
+
+        case .upToDate:
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.caption)
+                Text(L10n.tr("已是最新版本", "Up to date"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button {
+                    updater.checkForUpdates(silent: false)
+                } label: {
+                    Text(L10n.tr("重新检查", "Check Again"))
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+            }
+            .padding(.top, 3)
+
+        case .available(let info):
+            VStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.orange)
+                    Text(L10n.tr("发现新版本 v\(info.version)", "New version v\(info.version) available!"))
+                        .font(.callout.weight(.semibold))
+                }
+
+                if !info.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(info.notes)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 4)
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        updater.startInstall()
+                    } label: {
+                        Label(L10n.tr("自动安装更新并重启", "Update & Restart"), systemImage: "arrow.down.circle.fill")
+                            .font(.caption.weight(.medium))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                    Link(destination: info.releaseURL) {
+                        Text(L10n.tr("发行说明", "Release Notes"))
+                            .font(.caption)
+                    }
+                }
+                .padding(.top, 2)
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 14)
+            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.accentColor.opacity(0.2), lineWidth: 1)
+            )
+            .padding(.top, 4)
+
+        case .downloading(let progress):
+            VStack(spacing: 5) {
+                HStack {
+                    Text(L10n.tr("正在下载新版本…", "Downloading update…"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(Int(progress * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                Button(L10n.tr("取消", "Cancel")) {
+                    updater.cancel()
+                }
+                .buttonStyle(.plain)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            .frame(width: 240)
+            .padding(.top, 4)
+
+        case .verifying:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(L10n.tr("正在校验苹果安全代码签名…", "Verifying Apple code signature…"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+
+        case .installing:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(L10n.tr("正在安装更新并重新启动…", "Installing and restarting…"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+
+        case .failed(let message):
+            VStack(spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+                HStack(spacing: 8) {
+                    Button(L10n.tr("重试", "Retry")) {
+                        updater.checkForUpdates(silent: false)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Link(destination: AppInfo.repositoryURL) {
+                        Text(L10n.tr("前往 GitHub 下载", "Download from GitHub"))
+                            .font(.caption2)
+                    }
+                }
+            }
+            .padding(.top, 3)
+        }
     }
 
     // MARK: - 使用说明

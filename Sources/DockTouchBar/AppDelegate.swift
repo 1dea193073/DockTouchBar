@@ -64,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.isEnabled = false
         return item
     }()
+    private lazy var checkUpdatesItem = makeItem(#selector(checkForUpdates))
     private lazy var aboutItem = makeItem(#selector(showAbout))
     private lazy var quitItem = makeItem(#selector(NSApplication.terminate(_:)), target: NSApp, keyEquivalent: "q")
 
@@ -108,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(languageItem)
         menu.addItem(loginItem)
         menu.addItem(.separator())
+        menu.addItem(checkUpdatesItem)
         menu.addItem(aboutItem)
         menu.addItem(quitItem)
 
@@ -231,6 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for (item, text) in zip(accessibilityUses, uses) { item.title = text }
         permissionsFootnote.title = L10n.tr("除此之外，不需要其他任何权限", "No other permission is needed")
 
+        checkUpdatesItem.title = L10n.tr("检查更新…", "Check for Updates…")
         aboutItem.title = L10n.tr("关于 \(AppInfo.name)…", "About \(AppInfo.name)…")
         quitItem.title = L10n.tr("退出", "Quit \(AppInfo.name)")
     }
@@ -330,6 +333,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    @objc private func checkForUpdates() {
+        about.show(checkUpdates: true)
     }
 
     @objc private func showAbout() {

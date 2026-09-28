@@ -748,7 +748,7 @@ extension DockBarController: NSScrubberDataSource, NSScrubberFlowLayoutDelegate 
 final class DockTileView: NSScrubberItemView {
     private let highlightLayer = CALayer()
     private let iconLayer = CALayer()
-    /// 右上角状态点：红色＝前台，灰色＝在运行但没激活，隐藏＝没运行。参考系统图标右上角的提示徽标位置。
+    /// 右上角状态点：红色＝当前激活（前台）App，未激活/未运行不显示。参考系统图标右上角的提示徽标位置。
     private let badgeLayer = CALayer()
     private let dividerLayer = CALayer()
     private var iconSize: CGFloat = 24
@@ -802,10 +802,10 @@ final class DockTileView: NSScrubberItemView {
         // 没运行的 App（固定在栏里但还没启动）图标暗一些，一眼能和运行中的分开，但不用暗到看不清图标本身。
         baseOpacity = tile.isRunning ? 1 : 0.6
         iconLayer.opacity = baseOpacity
-        badgeLayer.isHidden = tile.kind != .app || !tile.isRunning
-        badgeLayer.backgroundColor = (tile.isFrontmost ? NSColor.systemRed : NSColor(white: 0.55, alpha: 1)).cgColor
-        // 灰色（运行中但没激活）描边比红色（前台）更淡一些，不那么抢眼。
-        badgeLayer.borderColor = NSColor(white: 1, alpha: tile.isFrontmost ? 1 : 0.7).cgColor
+        // 仅当前激活（前台）的应用显示右上角小红点；未运行应用已通过透明度区分，后台运行应用不需要灰色圆圈。
+        badgeLayer.isHidden = tile.kind != .app || !tile.isFrontmost
+        badgeLayer.backgroundColor = NSColor.systemRed.cgColor
+        badgeLayer.borderColor = NSColor.white.cgColor
         dividerLayer.isHidden = tile.kind != .divider
         CATransaction.commit()
         needsLayout = true
