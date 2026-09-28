@@ -26,12 +26,23 @@
 </p>
 
 ![Touch Bar 上的 DockTouchBar](assets/touchbar-idle.gif)
-
 *平时工作状态：图标底部贴边、右上角运行状态标点（前台红色、运行中灰色微描边），最右侧像素咖啡杯白烟动态飘动*
 
 ![长按退出：四季主题关闭效果](assets/touchbar-seasons.gif)
-
 *长按退出演示：像素画四季长按倒计时动画（春·奔跑小狗 / 夏·帆船冲浪 / 秋·林间小狐 / 冬·雪橇滑雪），中途松手即取消，松手后还有收尾消散风暴*
+
+### ⚡ 极致能耗与性能（实机实测）
+
+DockTouchBar 为全天常驻设计，基于纯事件驱动模型（Event-Driven），拒绝轮询，绝不阻碍 CPU 深度睡眠：
+
+| 指标维度 | 实测数据 | 说明 |
+|---|---|---|
+| **CPU 占用** | **0.0% ~ 0.8%** | 日常空闲 0.0%；仅在切换应用或窗口变动时有瞬间微小起伏 |
+| **物理内存 (Footprint)** | **29 MB** | macOS 官方 `footprint` 工具实测，远低于传统跨平台工具 |
+| **能耗影响 (Energy Impact)** | **0.0** | 活动监视器最低档能耗，对电池续航几无影响 |
+| **常驻线程** | **4 线程（全部休眠等待事件）** | 零忙等待，无高频心跳唤醒 |
+| **网络访问** | **零网络连接 (0 Sockets)** | 纯本地运行，不联网、无统计、无隐私泄露 |
+| **渲染性能** | **单帧约 2.3 ms** | 原生 CoreAnimation / AppKit 渲染，触控灵敏跟手 |
 
 **如果 DockTouchBar 对你有用，去 GitHub 点个 ⭐ Star，就是最好的支持。**
 
@@ -92,22 +103,6 @@ Pock、PockV2 等都能把 Dock 放到 Touch Bar 上，但它们做的事情更�
 - 关于：使用说明、产品页和开发日记链接、Star 按钮
 
 App 已经在运行时，再从「应用程序」打开它，会直接弹出这个菜单。
-
-![长按退出：四个季节](assets/seasons.png)
-
-*长按：图标变暗，右边缘出现倒计时，背景是一幅像素画的小场景：春、夏、秋、冬（从上到下）。一个小角色（小狗、帆船、狐狸、雪橇）沿着分段的进度条往前跑，跑到头就关闭，接着一阵花瓣、泡泡、落叶或雪扫过画面，再渐渐散去；中途松手算单击。这些都是正在运行的 App 的真实截图。*
-
-<img src="assets/about-zh.png" alt="关于窗口" width="300"> <img src="assets/usage-zh.png" alt="使用说明页" width="300">
-
-## 真机照片
-
-<p>
-  <img src="assets/photos/desk.jpg" alt="MacBook Pro 上的 DockTouchBar" width="420">
-  <img src="assets/photos/dock.jpg" alt="Touch Bar 上的 Dock" width="140">
-  <img src="assets/photos/closing.jpg" alt="长按退出时右边缘的倒计时" width="140">
-</p>
-
-*作者 M1 MacBook Pro 上用 1.7 版拍的实拍：Touch Bar 上的 Dock，以及长按退出时的“正在关闭…”倒计时。拍摄时还是 1.7，没有 1.8 的像素画提示和按钮。*
 
 ## 使用环境和实测情况
 

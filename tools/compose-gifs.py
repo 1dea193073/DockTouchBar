@@ -8,9 +8,8 @@ BUILD_DIR = "build/gifs"
 OUT_DIR = "assets"
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# 与 Swift 中的 framed 保持完全一致的规格 (2x 坐标系)
-# padX = 64, padY = 72, bar_w = 2008, bar_h = 60, corner_r = 36
-padX, padY = 64, 72
+# 紧凑型 Touch Bar 外框（减少上下留白，使 README 动图间距更紧凑，视觉更聚焦）
+padX, padY = 24, 16
 bar_w, bar_h = 2008, 60
 W, H = bar_w + padX * 2, bar_h + padY * 2
 corner_r = 36
@@ -22,8 +21,8 @@ mask_draw.rounded_rectangle([padX, padY, padX + bar_w, padY + bar_h], radius=cor
 
 shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 s_draw = ImageDraw.Draw(shadow)
-s_draw.rounded_rectangle([padX, padY + 10, padX + bar_w, padY + bar_h + 10], radius=corner_r, fill=(0, 0, 0, 90))
-shadow = shadow.filter(ImageFilter.GaussianBlur(18))
+s_draw.rounded_rectangle([padX, padY + 3, padX + bar_w, padY + bar_h + 3], radius=corner_r, fill=(0, 0, 0, 80))
+shadow = shadow.filter(ImageFilter.GaussianBlur(8))
 
 def process_video_to_gif(mov_path, out_gif_path, fps=15):
     temp_frames_dir = os.path.join(BUILD_DIR, "tmp_frames")
@@ -112,8 +111,8 @@ if all(os.path.exists(m) for m in season_movs):
 
     min_count = min(len(glob.glob(os.path.join(temp_frames_dir, s, "frame_*.png"))) for s in seasons)
     
-    # 拼垂直 stack
-    pad_between = 24
+    # 拼垂直 stack，条目间距紧凑
+    pad_between = 10
     total_H = H * 4 + pad_between * 3
     for idx in range(min_count):
         combined = Image.new("RGBA", (W, total_H), (0, 0, 0, 0))
