@@ -1,10 +1,12 @@
 import AppKit
 
-/// 右侧两个小按钮的像素画图标：白色、8 位机风格，和长按提示里的像素画是一个味道。每格 2pt。
+/// 右侧两个小按钮的像素画图标：白色、8 位机风格，和长按提示里的像素画是一个味道。每格 2.5pt。
+/// 咖啡杯有 11 行，2.5pt/格正好在 30pt 的按钮高度里撑到接近顶格（27.5pt）又不溢出；
+/// cell 和下面的栅格 scale 要保持 cell×2＝scale（contentsScale 是 2），不然贴图会被非整数倍放大，糊。
 enum PixelIcon {
-    static let cell: CGFloat = 2
+    static let cell: CGFloat = 2.5
     /// 每格在图片里占几个像素（Retina 屏 2 倍）。
-    private static let scale = 4
+    private static let scale = 5
 
     /// 咖啡杯（13×11 格）：杯口、咖啡、杯把、托盘；上面 4 行是蒸汽，一共三帧，轮流播放就是热气往上飘。
     static let coffee: [CGImage] = {
@@ -25,8 +27,11 @@ enum PixelIcon {
         return steam.compactMap { image($0 + cup) }
     }()
 
-    /// 窗口居中（13×9 格）：四个角的取景框，中间一个居中的窗口。
+    /// 窗口居中（13×11 格，图形本身还是 9 行，上面垫两行空的）：四个角的取景框，中间一个居中的窗口。
+    /// 垫的两行空的是为了和咖啡杯（13×11）一样高——两个按钮的图形底边都贴着按钮下边，垫过之后顶边也就对齐了。
     static let center: CGImage? = image([
+        ".............",
+        ".............",
         "###.......###",
         "#...........#",
         "#...........#",
@@ -38,8 +43,10 @@ enum PixelIcon {
         "###.......###",
     ])
 
-    /// 窗口最大化（13×9 格）：一个闭合的外框，里面一块几乎铺满的窗口。和居中的取景框一眼能分开。
+    /// 窗口最大化（13×11 格，同上垫两行）：一个闭合的外框，里面一块几乎铺满的窗口。和居中的取景框一眼能分开。
     static let maximize: CGImage? = image([
+        ".............",
+        ".............",
         "#############",
         "#...........#",
         "#.#########.#",
@@ -101,8 +108,9 @@ final class PixelButton: NSButton {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        // 水平居中；竖直方向贴着按钮下边（和 Dock 图标共用同一条基线），不再上下居中。
         // 落在整数点上，方块的边才利落。
-        iconLayer.position = CGPoint(x: (bounds.width / 2).rounded(), y: (bounds.height / 2).rounded())
+        iconLayer.position = CGPoint(x: (bounds.width / 2).rounded(), y: (iconSize.height / 2).rounded())
         CATransaction.commit()
     }
 

@@ -25,9 +25,13 @@
   <img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
-![DockTouchBar on the Touch Bar](assets/touchbar.png)
+![DockTouchBar on the Touch Bar](assets/touchbar-idle.gif)
 
-*A rendering of the Touch Bar, drawn by the app's own view code with stock macOS apps as samples. Order matches your Dock: Finder → pinned apps → divider → other running apps. A dot marks a running app; the brightest dot is the frontmost one. At the right end: the coffee cup (take a break) and the center / maximize button.*
+*Idle state: apps aligned to bottom with top-right running badge dots (red for frontmost, grey with outline for background); pixel-art coffee cup with live rising steam.*
+
+![Long-press to quit: four seasons animation](assets/touchbar-seasons.gif)
+
+*Long-press to quit: side-scrolling pixel-art countdown scenes across four seasons (spring running dog / summer sailing ship / autumn forest fox / winter sleigh ride). Release early to cancel, with seasonal finale burst.*
 
 **If DockTouchBar is useful to you, a ⭐ Star on GitHub is the best way to say thanks.**
 

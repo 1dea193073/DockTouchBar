@@ -144,7 +144,7 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
     if env["PREVIEW_LIVE"] == "1" {
         // 真的把窗口显示出来并让长按提示跑起来，由外面的脚本用 screencapture 按窗口编号截图。
         if let index = env["PREVIEW_PRESS_INDEX"].flatMap(Int.init) {
-            (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressProgress(duration: 3)
+            (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressed()
             controller.showQuitHint(forItemAt: index, appName: "Messages", duration: 3)
         }
         print("WINDOW \(window.windowNumber)")
@@ -154,7 +154,7 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
         return
     }
     if let index = env["PREVIEW_PRESS_INDEX"].flatMap(Int.init) {
-        (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressProgress(duration: 3)
+        (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressed()
         controller.showQuitHint(forItemAt: index, appName: "Messages", duration: 3,
                                 progress: CGFloat(env["PREVIEW_PROGRESS"].flatMap(Double.init) ?? 0.5))
     }

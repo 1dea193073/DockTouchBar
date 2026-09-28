@@ -179,6 +179,12 @@ enum AppSwitcher {
         AXIsProcessTrusted()
     }
 
+    /// 这个 App 有没有正常大小的窗口（不管在哪个桌面、是否最小化）。不需要辅助功能权限。
+    /// 给 `DockModel` 判断访达用：访达进程杀不掉、永远“在运行”，只有看它有没有窗口才知道是不是真的在用。
+    static func hasNormalWindows(pid: pid_t) -> Bool {
+        !normalWindows(of: pid, options: [.optionAll, .excludeDesktopElements]).isEmpty
+    }
+
     /// 弹出系统的“允许辅助功能”提示，并把本 App 加进 系统设置 → 隐私与安全性 → 辅助功能 的列表。
     static func requestAccessibilityAccess() {
         _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)

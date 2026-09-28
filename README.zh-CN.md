@@ -25,9 +25,13 @@
   <img src="https://img.shields.io/badge/许可证-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
-![Touch Bar 上的 DockTouchBar](assets/touchbar.png)
+![Touch Bar 上的 DockTouchBar](assets/touchbar-idle.gif)
 
-*Touch Bar 的渲染示意图：由 App 自己的界面代码画出，用系统自带 App 做示例。顺序和你的 Dock 一致：访达 → 固定的 App → 分隔线 → 其他正在运行的 App。小圆点表示正在运行，最亮的是当前前台 App。最右边是咖啡杯（歇一会儿）和窗口居中 / 最大化按钮。*
+*平时工作状态：图标底部贴边、右上角运行状态标点（前台红色、运行中灰色微描边），最右侧像素咖啡杯白烟动态飘动*
+
+![长按退出：四季主题关闭效果](assets/touchbar-seasons.gif)
+
+*长按退出演示：像素画四季长按倒计时动画（春·奔跑小狗 / 夏·帆船冲浪 / 秋·林间小狐 / 冬·雪橇滑雪），中途松手即取消，松手后还有收尾消散风暴*
 
 **如果 DockTouchBar 对你有用，去 GitHub 点个 ⭐ Star，就是最好的支持。**
 

@@ -3,9 +3,16 @@ import AppKit
 /// Touch Bar 上的那条 Dock：显示、刷新、点击/双击/长按，以及被系统收回后自动挂回去。
 final class DockBarController: NSObject {
     private enum Metrics {
-        static let tileWidth: CGFloat = 36
+        /// 40pt 比原来的 36pt 宽一些，手指按下去不容易碰到旁边的图标；间距另外由 `iconSpacing` 控制。
+        static let tileWidth: CGFloat = 40
         static let dividerWidth: CGFloat = 13
-        static let iconSize: CGFloat = 24
+        /// 图标贴底、右上角留出空间给状态点，在保证状态点顶上边缘的前提下视觉最大化（约 28pt）。
+        static let iconSize: CGFloat = {
+            if let env = ProcessInfo.processInfo.environment["PREVIEW_ICON_SIZE"], let val = Double(env) {
+                return CGFloat(val)
+            }
+            return 28
+        }()
         /// Touch Bar 占满整条时可用宽度约 1004pt。
         static let maxDockWidth: CGFloat = 1000
         /// 最右侧固定的按钮（“咖啡杯”和“窗口居中”）的宽度，Dock 图标区不会画到它们下面。
@@ -28,13 +35,14 @@ final class DockBarController: NSObject {
 
     private let scrubber: NSScrubber
     private let scrubberWidth: NSLayoutConstraint
+    private let flowLayout = NSScrubberFlowLayout()
     private let pressRecognizer = NSPressGestureRecognizer()
     /// 装着 Dock 和右侧“正在关闭”提示的容器；宽度固定为整条 Touch Bar，Dock 靠左，提示靠右边缘。
     private let container = NSView()
     private let quitHint = QuitHintView()
     /// 右侧的两个像素画按钮：咖啡杯（歇一会儿，把 Touch Bar 还给系统）在左，窗口居中在最右边。
     private let coffeeButton = PixelButton(frames: PixelIcon.coffee, cells: (13, 11), frameDuration: 0.4)
-    private let centerButton = PixelButton(frames: PixelIcon.center.map { [$0] } ?? [], cells: (13, 9))
+    private let centerButton = PixelButton(frames: PixelIcon.center.map { [$0] } ?? [], cells: (13, 11))
     private let quitHintLeading: NSLayoutConstraint
     /// 咖啡杯贴着居中按钮，或者（居中按钮隐藏时）贴着最右边。
     private let coffeeToCenter: NSLayoutConstraint
@@ -75,6 +83,7 @@ final class DockBarController: NSObject {
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var runningAppsObservation: NSKeyValueObservation?
     private var controlStripPID: pid_t?
+    private let finderWindowMonitor = FinderWindowMonitor()
     private lazy var systemTouchBarActivity = SystemTouchBarActivityMonitor { [weak self] isActive in
         if isActive {
             self?.beginPause(for: .systemCapture)
@@ -111,6 +120,17 @@ final class DockBarController: NSObject {
 
     var showsPinnedApps = true {
         didSet { if isActive { reload() } }
+    }
+
+    /// 图标之间的间距（pt）：越大，手指按在两个图标交界处时越不容易碰到旁边那个。默认 4pt。
+    var iconSpacing: CGFloat = 4 {
+        didSet {
+            guard oldValue != iconSpacing else { return }
+            flowLayout.itemSpacing = iconSpacing
+            recomputeContentWidth()
+            updateDockWidth()
+            scrubber.reloadData()
+        }
     }
 
     /// 长按多少秒退出 App；0 表示不启用。
@@ -157,7 +177,8 @@ final class DockBarController: NSObject {
         self.scrubber = scrubber
         self.scrubberWidth = scrubber.widthAnchor.constraint(equalToConstant: 0)
         self.quitHintLeading = quitHint.leadingAnchor.constraint(equalTo: container.leadingAnchor)
-        self.coffeeToCenter = coffeeButton.trailingAnchor.constraint(equalTo: centerButton.leadingAnchor)
+        // 和图标格间距一个道理：留个小缝，手指按在两个按钮交界处不会跟旁边那个撞在一起。
+        self.coffeeToCenter = coffeeButton.trailingAnchor.constraint(equalTo: centerButton.leadingAnchor, constant: -2)
         self.coffeeToEdge = coffeeButton.trailingAnchor.constraint(equalTo: container.trailingAnchor)
         super.init()
 
@@ -168,9 +189,8 @@ final class DockBarController: NSObject {
         // 选中态每次都立刻清掉（连续点同一个图标才能再次触发），点击反馈由 DockTileView.flash() 自己画。
         scrubber.selectionBackgroundStyle = nil
         scrubber.showsAdditionalContentIndicators = true
-        let layout = NSScrubberFlowLayout()
-        layout.itemSpacing = 0
-        scrubber.scrubberLayout = layout
+        flowLayout.itemSpacing = iconSpacing
+        scrubber.scrubberLayout = flowLayout
         scrubberWidth.isActive = true
 
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -190,6 +210,7 @@ final class DockBarController: NSObject {
         centerButton.action = #selector(centerTapped)
         centerButton.setAccessibilityLabel(L10n.tr("窗口居中", "Center the window"))
         windowWatcher.onChange = { [weak self] in self?.refreshCenterIcon() }
+        finderWindowMonitor.onChange = { [weak self] in self?.scheduleReload() }
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(equalToConstant: Metrics.maxDockWidth),
             container.heightAnchor.constraint(equalToConstant: 30),
@@ -232,6 +253,7 @@ final class DockBarController: NSObject {
         systemTouchBarActivity.start()
         functionRowActivity.start()
         updateWindowWatching()
+        finderWindowMonitor.watch(pid: DockModel.finderPID())
         reload()
         present()
         // 刚登录时系统的 Touch Bar 进程可能还没就绪，稍后再确认一次。
@@ -247,6 +269,7 @@ final class DockBarController: NSObject {
         systemTouchBarActivity.stop()
         functionRowActivity.stop()
         windowWatcher.stop()
+        finderWindowMonitor.stop()
         clearPauses()
         TouchBarBridge.dismiss(touchBar)
         TouchBarBridge.removeTrayItem(trayItem)
@@ -432,8 +455,9 @@ final class DockBarController: NSObject {
         var newPress = Press(index: index, tile: tile, start: point)
         lastTap = nil
         // 没在运行的没什么可退出的，松手后照常当作点击（启动它）。
-        if longPressDuration > 0, tile.kind == .app, tile.isRunning, let url = tile.url,
-           let app = DockModel.runningApp(bundleID: tile.bundleID, url: url) {
+        // 不看缓存的 tile.isRunning——访达窗口开关不会触发刷新，缓存值随时可能是旧的；这里现查一次真实状态。
+        if longPressDuration > 0, tile.kind == .app, let url = tile.url,
+           let app = DockModel.runningApp(bundleID: tile.bundleID, url: url), DockModel.isActuallyRunning(app) {
             let name = app.localizedName ?? url.deletingPathExtension().lastPathComponent
             let plan = QuitPlanner.plan(for: app)
             newPress.plan = plan
@@ -447,7 +471,7 @@ final class DockBarController: NSObject {
                 let work = DispatchWorkItem { [weak self] in self?.completePress() }
                 newPress.quitWork = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
-                (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressProgress(duration: remaining)
+                (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressed()
                 switch plan {
                 case .closeWindow: quitHint.action = .closeWindow
                 case .hideApp: quitHint.action = .hide
@@ -498,7 +522,7 @@ final class DockBarController: NSObject {
         current.quitWork = nil
         press = current
         swallowTapsUntilRelease = true
-        (scrubber.itemViewForItem(at: current.index) as? DockTileView)?.hidePressProgress()
+        (scrubber.itemViewForItem(at: current.index) as? DockTileView)?.hidePressed()
         guard let url = current.tile.url,
               let app = DockModel.runningApp(bundleID: current.tile.bundleID, url: url) else {
             quitHint.hide(completed: true)
@@ -554,7 +578,7 @@ final class DockBarController: NSObject {
         guard let current = press else { return }
         current.quitWork?.cancel()
         press?.quitWork = nil
-        (scrubber.itemViewForItem(at: current.index) as? DockTileView)?.hidePressProgress()
+        (scrubber.itemViewForItem(at: current.index) as? DockTileView)?.hidePressed()
     }
 
     private func tileIndex(at point: NSPoint) -> Int? {
@@ -606,6 +630,8 @@ final class DockBarController: NSObject {
             recover(readdTray: true)
         }
         controlStripPID = pid
+        // 访达一般不会重启；万一崩溃重启了，PID 会变，得重新盯着新的进程（PID 没变时这一句什么也不做）。
+        finderWindowMonitor.watch(pid: DockModel.finderPID())
         scheduleReload()
     }
 
@@ -632,17 +658,22 @@ final class DockBarController: NSObject {
             && zip(newTiles, tiles).allSatisfy { $0.isSameSlot(as: $1) }
         tiles = newTiles
         if sameSlots {
-            // 只是运行状态变了：原地更新小圆点，不打断当前的滚动位置。
+            // 位置没变、只是运行/前台状态变了：原地刷新每个图标的状态点和亮暗，不重排列表、不打断滚动位置。
             for (index, tile) in tiles.enumerated() {
                 (scrubber.itemViewForItem(at: index) as? DockTileView)?.configure(with: tile, iconSize: Metrics.iconSize)
             }
         } else {
             // 图标位置变了，按压记录的序号已经不对，直接作废。
             cancelPress()
-            contentWidth = tiles.reduce(0) { $0 + Self.width(of: $1) }
+            recomputeContentWidth()
             updateDockWidth()
             scrubber.reloadData()
         }
+    }
+
+    private func recomputeContentWidth() {
+        let spacing = tiles.isEmpty ? 0 : CGFloat(tiles.count - 1) * iconSpacing
+        contentWidth = tiles.reduce(0) { $0 + Self.width(of: $1) } + spacing
     }
 
     /// 右侧按钮占的宽度。
@@ -717,15 +748,34 @@ extension DockBarController: NSScrubberDataSource, NSScrubberFlowLayoutDelegate 
 final class DockTileView: NSScrubberItemView {
     private let highlightLayer = CALayer()
     private let iconLayer = CALayer()
-    private let dotLayer = CALayer()
+    /// 右上角状态点：红色＝前台，灰色＝在运行但没激活，隐藏＝没运行。参考系统图标右上角的提示徽标位置。
+    private let badgeLayer = CALayer()
     private let dividerLayer = CALayer()
-    private let progressLayer = CAShapeLayer()
     private var iconSize: CGFloat = 24
+    /// 图形（裁掉留白之后）在 `iconLayer` 本地坐标系里的实际范围；状态点靠它定位，图标和点因此
+    /// 天然是“一组”——图形换了大小或者比例，点跟着一起变，不用再单独调一遍像素。
+    private var iconContentRect: CGRect?
+    /// 长按变暗以后要恢复到的透明度：运行中的图标是 1，没运行（只是固定在栏里）的图标本来就暗一些。
+    private var baseOpacity: Float = 1
+    private static let badgeSize: CGFloat = {
+        if let env = ProcessInfo.processInfo.environment["PREVIEW_BADGE_SIZE"], let val = Double(env) {
+            return CGFloat(val)
+        }
+        return 7
+    }()
+    /// 状态点圆心压在图形右上角圆角轮廓线上（macOS Squircle 圆角在 45° 方向离顶角的内缩约为边长的 7.7%）。
+    /// 图标和圆点作为整体排版：图标贴底（y=0），圆点顶到 Touch Bar 上边缘（y=30）。
+    private static let badgeCornerPull: CGFloat = {
+        if let env = ProcessInfo.processInfo.environment["PREVIEW_BADGE_PULL"], let val = Double(env) {
+            return CGFloat(val)
+        }
+        return 0.08
+    }()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        for sublayer in [highlightLayer, iconLayer, dotLayer, dividerLayer, progressLayer] {
+        for sublayer in [highlightLayer, iconLayer, badgeLayer, dividerLayer] {
             sublayer.contentsScale = 2
             layer?.addSublayer(sublayer)
         }
@@ -733,14 +783,9 @@ final class DockTileView: NSScrubberItemView {
         highlightLayer.cornerRadius = 6
         highlightLayer.opacity = 0
         iconLayer.contentsGravity = .resizeAspect
-        dotLayer.cornerRadius = 1.5
+        badgeLayer.cornerRadius = Self.badgeSize / 2
+        badgeLayer.borderWidth = 1
         dividerLayer.backgroundColor = NSColor(white: 1, alpha: 0.3).cgColor
-        progressLayer.strokeColor = NSColor.systemRed.cgColor
-        progressLayer.fillColor = nil
-        progressLayer.lineWidth = 2
-        progressLayer.lineCap = .round
-        progressLayer.strokeEnd = 0
-        progressLayer.isHidden = true
     }
 
     required init?(coder: NSCoder) {
@@ -752,11 +797,16 @@ final class DockTileView: NSScrubberItemView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         iconLayer.contents = tile.url.flatMap { IconCache.image(for: $0, pointSize: iconSize) }
+        iconContentRect = tile.url.flatMap { IconCache.contentRect(for: $0, pointSize: iconSize) }
         iconLayer.isHidden = tile.kind != .app
+        // 没运行的 App（固定在栏里但还没启动）图标暗一些，一眼能和运行中的分开，但不用暗到看不清图标本身。
+        baseOpacity = tile.isRunning ? 1 : 0.6
+        iconLayer.opacity = baseOpacity
+        badgeLayer.isHidden = tile.kind != .app || !tile.isRunning
+        badgeLayer.backgroundColor = (tile.isFrontmost ? NSColor.systemRed : NSColor(white: 0.55, alpha: 1)).cgColor
+        // 灰色（运行中但没激活）描边比红色（前台）更淡一些，不那么抢眼。
+        badgeLayer.borderColor = NSColor(white: 1, alpha: tile.isFrontmost ? 1 : 0.7).cgColor
         dividerLayer.isHidden = tile.kind != .divider
-        dotLayer.isHidden = !tile.isRunning
-        // 当前前台的 App 圆点更亮。
-        dotLayer.backgroundColor = NSColor(white: 1, alpha: tile.isFrontmost ? 1 : 0.5).cgColor
         CATransaction.commit()
         needsLayout = true
     }
@@ -770,30 +820,20 @@ final class DockTileView: NSScrubberItemView {
         highlightLayer.add(animation, forKey: "flash")
     }
 
-    /// 长按退出的进度：图标变暗，下方红条从左到右走满。
-    func showPressProgress(duration: TimeInterval) {
+    /// 长按退出时把图标变暗一点，做个按下的反馈；倒计时本身已经在右侧的提示条上画出来了，这里不用再重复画一遍。
+    func showPressed() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         iconLayer.opacity = 0.5
-        dotLayer.opacity = 0
-        progressLayer.isHidden = false
-        progressLayer.strokeEnd = 1
+        badgeLayer.opacity = 0
         CATransaction.commit()
-        let animation = CABasicAnimation(keyPath: "strokeEnd")
-        animation.fromValue = 0
-        animation.toValue = 1
-        animation.duration = duration
-        progressLayer.add(animation, forKey: "progress")
     }
 
-    func hidePressProgress() {
-        progressLayer.removeAnimation(forKey: "progress")
+    func hidePressed() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        iconLayer.opacity = 1
-        dotLayer.opacity = 1
-        progressLayer.isHidden = true
-        progressLayer.strokeEnd = 0
+        iconLayer.opacity = baseOpacity
+        badgeLayer.opacity = 1
         CATransaction.commit()
     }
 
@@ -804,14 +844,18 @@ final class DockTileView: NSScrubberItemView {
         let b = bounds
         let iconX = (b.width - iconSize) / 2
         highlightLayer.frame = b.insetBy(dx: 2, dy: 0)
-        iconLayer.frame = CGRect(x: iconX, y: b.height - iconSize - 1, width: iconSize, height: iconSize)
-        dotLayer.frame = CGRect(x: (b.width - 3) / 2, y: 1, width: 3, height: 3)
+        // 图标底部贴边（y=0），与右侧按钮共用底边基线；顶部留出几个像素空间给右上角圆点。
+        iconLayer.frame = CGRect(x: iconX, y: 0, width: iconSize, height: iconSize)
+        // 状态点圆心压在图形自己的右上角圆角轮廓线上：
+        // 图标贴底后，图形最高点即 glyph.maxY；圆点圆心在边线上，最高点顶到 Touch Bar 上边缘。
+        let badgeSize = Self.badgeSize
+        let glyph = iconContentRect ?? CGRect(x: 0, y: 0, width: iconSize, height: iconSize)
+        let pull = min(glyph.width, glyph.height) * Self.badgeCornerPull
+        let badgeCenterX = iconX + glyph.maxX - pull
+        let badgeCenterY = glyph.maxY - pull
+        badgeLayer.frame = CGRect(x: badgeCenterX - badgeSize / 2, y: badgeCenterY - badgeSize / 2,
+                                  width: badgeSize, height: badgeSize)
         dividerLayer.frame = CGRect(x: (b.width - 1) / 2, y: (b.height - 18) / 2, width: 1, height: 18)
-        progressLayer.frame = b
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: iconX + 2, y: 2))
-        path.addLine(to: CGPoint(x: iconX + iconSize - 2, y: 2))
-        progressLayer.path = path
         CATransaction.commit()
     }
 }

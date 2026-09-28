@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         static let showCenterButton = "showCenterButton"
         static let centerHeight = "centerHeightPercent"
         static let centerWidth = "centerWidthPercent"
+        static let iconSpacing = "iconSpacing"
     }
 
     /// 长按退出 App 的可选时长（秒），0 = 不启用。
@@ -23,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let heightOptions = [60, 70, 80, 90, 100]
     /// 居中后窗口的宽度：0 = 和高度一样（正方形），其余是占屏幕可用宽度的百分比。
     private static let widthOptions = [0, 50, 60, 70, 80, 90, 100]
+    /// 图标之间的间距（pt）可选挡位。
+    private static let spacingOptions = [0, 2, 4, 6, 8]
 
     private let dock = DockBarController()
     private let about = AboutWindowController()
@@ -38,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var centerWidthItem = makeSubmenuItem(
         options: Self.widthOptions.map { ($0, #selector(setCenterWidth(_:))) })
     private lazy var pinnedItem = makeItem(#selector(togglePinned))
+    private lazy var spacingItem = makeSubmenuItem(
+        options: Self.spacingOptions.map { ($0, #selector(setIconSpacing(_:))) })
     private lazy var doubleTapItem = makeItem(#selector(toggleDoubleTap))
     private lazy var longPressItem = makeSubmenuItem(
         options: Self.longPressOptions.map { ($0, #selector(setLongPress(_:))) })
@@ -71,7 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         defaults.register(defaults: [Key.enabled: true, Key.showPinned: true,
                                      Key.doubleTapHide: true, Key.longPressSeconds: 3,
                                      Key.hideSeconds: 20, Key.showCenterButton: true,
-                                     Key.centerHeight: 80, Key.centerWidth: 0])
+                                     Key.centerHeight: 80, Key.centerWidth: 0,
+                                     Key.iconSpacing: 4])
 
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -80,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(enabledItem)
         menu.addItem(hideDurationItem)
         menu.addItem(pinnedItem)
+        menu.addItem(spacingItem)
         menu.addItem(.separator())
         menu.addItem(centerButtonItem)
         menu.addItem(centerHeightItem)
@@ -117,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         dock.centerHeightPercent = defaults.integer(forKey: Key.centerHeight)
         dock.centerWidthPercent = defaults.integer(forKey: Key.centerWidth)
         dock.pauseDuration = TimeInterval(defaults.integer(forKey: Key.hideSeconds))
+        dock.iconSpacing = CGFloat(defaults.integer(forKey: Key.iconSpacing))
         applyEnabled()
     }
 
@@ -148,6 +156,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // 界面上是“只显示正在运行的 App”，存的仍是原来的 showPinned（取反），已有用户的设置不受影响。
         pinnedItem.title = L10n.tr("只显示正在运行的 App", "Only show running apps")
         pinnedItem.state = defaults.bool(forKey: Key.showPinned) ? .off : .on
+
+        let spacing = defaults.integer(forKey: Key.iconSpacing)
+        spacingItem.title = L10n.tr("图标间距：\(spacing)pt", "Icon spacing: \(spacing)pt")
+        for option in spacingItem.submenu?.items ?? [] {
+            option.title = L10n.tr("\(option.tag)pt", "\(option.tag)pt")
+            option.state = option.tag == spacing ? .on : .off
+        }
 
         centerButtonItem.title = L10n.tr("显示“窗口居中 / 最大化”按钮", "Show the center / maximize button")
         centerButtonItem.state = defaults.bool(forKey: Key.showCenterButton) ? .on : .off
@@ -244,6 +259,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func setHideDuration(_ sender: NSMenuItem) {
         defaults.set(sender.tag, forKey: Key.hideSeconds)
         dock.pauseDuration = TimeInterval(sender.tag)
+    }
+
+    @objc private func setIconSpacing(_ sender: NSMenuItem) {
+        defaults.set(sender.tag, forKey: Key.iconSpacing)
+        dock.iconSpacing = CGFloat(sender.tag)
     }
 
     @objc private func toggleCenterButton() {
