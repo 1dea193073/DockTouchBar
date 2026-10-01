@@ -86,10 +86,13 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 if env["PREVIEW_DEMO"] == "1" {
-    func tile(_ path: String, _ id: String, running: Bool = false, front: Bool = false) -> DockTile {
-        DockTile(kind: .app, url: URL(fileURLWithPath: path), bundleID: id, isRunning: running, isFrontmost: front)
+    func tile(_ path: String, _ id: String, running: Bool = false, front: Bool = false, temporary: Bool = false) -> DockTile {
+        DockTile(kind: .app, url: URL(fileURLWithPath: path), bundleID: id, isRunning: running, isFrontmost: front, isTemporary: temporary)
     }
     DockModel.previewTiles = [
+        tile("/System/Applications/TextEdit.app", "com.apple.TextEdit", running: true, temporary: true),
+        tile("/System/Applications/Calculator.app", "com.apple.calculator", running: true, temporary: true),
+        .temporaryDivider,
         tile("/System/Library/CoreServices/Finder.app", "com.apple.finder", running: true),
         tile("/Applications/Safari.app", "com.apple.Safari", running: true),
         tile("/System/Applications/Messages.app", "com.apple.MobileSMS", running: true, front: true),
@@ -103,12 +106,14 @@ if env["PREVIEW_DEMO"] == "1" {
         tile("/System/Applications/Podcasts.app", "com.apple.podcasts"),
         tile("/System/Applications/System Settings.app", "com.apple.systempreferences"),
         .divider,
-        tile("/System/Applications/Calculator.app", "com.apple.calculator", running: true),
-        tile("/System/Applications/TextEdit.app", "com.apple.TextEdit", running: true),
+        .trash,
     ]
 }
 
-if env["PREVIEW_WIDE"] == "1", let tiles = DockModel.previewTiles { DockModel.previewTiles = tiles + tiles }
+if env["PREVIEW_WIDE"] == "1", let tiles = DockModel.previewTiles {
+    let extra = tiles.filter { $0.kind == .app }
+    DockModel.previewTiles = Array(tiles.dropLast(2)) + extra + [.divider, .trash]
+}
 let controller = DockBarController()
 if let theme = env["PREVIEW_THEME"].flatMap(QuitHintTheme.init(rawValue:)) { controller.quitHintTheme = theme }
 controller.reload()

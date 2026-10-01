@@ -5,7 +5,7 @@ import Darwin
 ///
 /// 真正承载 ⌘⇧4 选区、⌘⇧5 工具条和录屏控制的是 `screencaptureui`；用户从“截图” App
 /// 打开时还会经过 Screenshot 启动器。DockTouchBar 的全宽系统模态栏优先级更高，因而必须在
-/// 截图任务活动期间主动让位，结束后再恢复。screencaptureui 自身会在 Esc 后继续存活数秒，
+/// 截图任务活动期间主动让位，结束后再恢复。screencaptureui 自身会在 Esc 后继续存活很久，
 /// 因此不能只用它的退出作为恢复信号。
 ///
 /// `NSTouchBar` 没有公开 API 可枚举“当前谁正在显示临时 Touch Bar”。这里刻意只匹配已在
@@ -22,7 +22,6 @@ final class SystemTouchBarActivityMonitor {
     private var runningAppsObservation: NSKeyValueObservation?
     private var taskTimer: Timer?
     private var screenshotUIIsRunning = false
-    private var hasObservedInteractiveTask = false
     private var missingTaskSamples = 0
     private var isScreenshotActive = false
 
@@ -46,7 +45,6 @@ final class SystemTouchBarActivityMonitor {
         taskTimer?.invalidate()
         taskTimer = nil
         screenshotUIIsRunning = false
-        hasObservedInteractiveTask = false
         missingTaskSamples = 0
         isScreenshotActive = false
     }
@@ -60,7 +58,6 @@ final class SystemTouchBarActivityMonitor {
 
         guard uiIsRunning else {
             screenshotUIIsRunning = false
-            hasObservedInteractiveTask = false
             missingTaskSamples = 0
             taskTimer?.invalidate()
             taskTimer = nil
@@ -70,8 +67,9 @@ final class SystemTouchBarActivityMonitor {
 
         if !screenshotUIIsRunning {
             screenshotUIIsRunning = true
-            // 如果系统将来不再使用 /usr/sbin/screencapture，仍保持旧的 UI 进程生命周期兜底。
-            setActive(true)
+            // 重启时 agent 可能是上次截图留下的，不能仅凭它存在就暂停。
+            // 无法读取任务状态时，仍保守地按 UI 生命周期让位。
+            setActive(Self.interactiveCaptureTaskIsRunning() ?? true)
             let timer = Timer(timeInterval: 0.15, repeats: true) { [weak self] _ in
                 self?.sampleInteractiveTask()
             }
@@ -84,13 +82,22 @@ final class SystemTouchBarActivityMonitor {
     private func sampleInteractiveTask() {
         guard screenshotUIIsRunning, let taskIsRunning = Self.interactiveCaptureTaskIsRunning() else { return }
         if taskIsRunning {
-            hasObservedInteractiveTask = true
             missingTaskSamples = 0
             setActive(true)
-        } else if hasObservedInteractiveTask {
+        } else {
             // 截图工具条到录屏进程的交接中可能有短暂空档；连续两次缺席才恢复。
             missingTaskSamples += 1
             if missingTaskSamples >= 2 { setActive(false) }
+        }
+    }
+
+    /// 用户点恢复入口时立即重查任务，清除残留 agent 造成的旧暂停。
+    func refreshCurrentState() {
+        guard runningAppsObservation != nil else { return }
+        refresh()
+        if screenshotUIIsRunning, let active = Self.interactiveCaptureTaskIsRunning() {
+            missingTaskSamples = 0
+            setActive(active)
         }
     }
 
@@ -160,6 +167,9 @@ final class FunctionRowActivityMonitor {
         monitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             self?.handle(event)
         }
+        // 在 Fn 已按住时重新开启避让，也要立即同步当前按键状态。
+        isFnDown = NSEvent.modifierFlags.contains(.function)
+        if isFnDown { stateDidChange(true) }
     }
 
     func stop() {
@@ -168,7 +178,17 @@ final class FunctionRowActivityMonitor {
         isFnDown = false
     }
 
+    /// 入口点击时补读当前修饰键，处理丢失的 Fn 松开事件。
+    func refreshCurrentState() {
+        guard monitor != nil else { return }
+        let down = NSEvent.modifierFlags.contains(.function)
+        guard down != isFnDown else { return }
+        isFnDown = down
+        stateDidChange(down)
+    }
+
     private func handle(_ event: NSEvent) {
+        guard monitor != nil else { return }
         let down = event.modifierFlags.contains(.function)
         guard down != isFnDown else { return }
         isFnDown = down

@@ -151,27 +151,93 @@ enum AppSwitcher {
         return latestClick.serial != serial && latestClick.pid != pid
     }
 
-    /// 双击：隐藏 App（等同 ⌘H），再点一下图标就回来。
-    /// 本来想做成最小化窗口，但开着“台前调度”时，辅助功能设置 AXMinimized、按最小化按钮都返回成功却不生效
-    /// （macOS 27 实测，访达和计算器都一样）；隐藏在任何设置下都有效，也不需要权限。
-    /// 注意 `hide()` 的返回值不可靠：实测窗口已经隐藏了它仍返回 false。
-    static func hide(_ tile: DockTile) {
+    /// 双击按目标窗口的黄色最小化按钮；台前调度下允许窗口被收进侧栏而 AXMinimized 仍为 false。
+    /// 先取消第一下的切换纠正，否则它会把刚收起的窗口重新提回来。失败时说明原因，不隐藏整个 App。
+    static func minimize(_ tile: DockTile, completion: @escaping (String?) -> Void) {
         guard let url = tile.url, let app = DockModel.runningApp(bundleID: tile.bundleID, url: url) else { return }
-        // 隐藏也算一次新点击：双击第一下留下的切换、盯梢纠正立刻中止，否则它们会把刚隐藏的 App 又提回来。
         clickLock.lock()
         latestClick = (latestClick.serial + 1, -1)
+        let serial = latestClick.serial
         clickLock.unlock()
-        // 排到队列后面：等在途的提升（已经被取代，很快退出）结束后再隐藏；隐藏后核对结果，没藏住就再来。
+        guard AXIsProcessTrusted() else {
+            promptForAccessOnce()
+            completion(L10n.tr("最小化窗口需要开启辅助功能权限", "Enable Accessibility to minimize windows"))
+            return
+        }
         queue.async {
-            func attempt(_ left: Int) {
+            let superseded = { isNewerClick(after: serial) }
+            func finish(_ message: String?) {
                 DispatchQueue.main.async {
-                    _ = app.hide()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        if !app.isHidden, left > 0 { attempt(left - 1) }
-                    }
+                    guard !superseded() else { return }
+                    completion(message)
                 }
             }
-            attempt(2)
+            // 第一下可能刚发出跨桌面或启动激活请求；等它到前台，随后才操作该 App 的窗口。
+            guard case .reached = SpaceWatcher.waitUntil(timeout: 1.6, poll: 0.02, superseded: superseded, {
+                frontmostPID() == app.processIdentifier
+            }), !superseded() else {
+                finish(L10n.tr("窗口还未切换完成，请再双击一次", "The window is still switching; double-tap again"))
+                return
+            }
+            let element = AXUIElementCreateApplication(app.processIdentifier)
+            AXUIElementSetMessagingTimeout(element, Float(raiseCallTimeout))
+            func axElement(_ owner: AXUIElement, _ name: String) -> AXUIElement? {
+                var value: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(owner, name as CFString, &value) == .success,
+                      let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+                return (value as! AXUIElement)
+            }
+            var candidates: [AXUIElement] = []
+            for name in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
+                if let candidate = axElement(element, name), let window = containingWindow(of: candidate) {
+                    candidates.append(window)
+                }
+            }
+            var windows: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &windows)
+            candidates += (windows as? [AXUIElement] ?? [])
+            guard let window = candidates.first(where: { isRealWindow($0, strict: true) }),
+                  let button = axElement(window, kAXMinimizeButtonAttribute) else {
+                finish(L10n.tr("这个 App 没有可最小化的窗口", "This app has no window to minimize"))
+                return
+            }
+            AXUIElementSetMessagingTimeout(window, Float(raiseCallTimeout))
+            AXUIElementSetMessagingTimeout(button, Float(raiseCallTimeout))
+            var enabled: CFTypeRef?
+            AXUIElementCopyAttributeValue(button, kAXEnabledAttribute as CFString, &enabled)
+            guard enabled as? Bool != false else {
+                finish(L10n.tr("这个窗口的最小化按钮不可用", "This window's minimize button is unavailable"))
+                return
+            }
+            let windowID = AXPrivate.windowID(of: window)
+            let wasOnScreen = windowID.map { isOnScreen($0, pid: app.processIdentifier) } ?? false
+            func displayedFrame() -> CGRect? {
+                guard let windowID,
+                      let list = CGWindowListCopyWindowInfo(.optionIncludingWindow, windowID) as? [[String: Any]],
+                      let info = list.first(where: { $0[kCGWindowNumber as String] as? CGWindowID == windowID }),
+                      let bounds = info[kCGWindowBounds as String] as? [String: CGFloat] else { return nil }
+                return CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0,
+                              width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
+            }
+            let originalFrame = displayedFrame()
+            guard !superseded() else { return }
+            guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else {
+                finish(L10n.tr("无法点击这个窗口的最小化按钮", "Couldn't press this window's minimize button"))
+                return
+            }
+            let minimized = SpaceWatcher.waitUntil(timeout: 1.6, poll: 0.04, superseded: superseded, {
+                var value: CFTypeRef?
+                AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &value)
+                if value as? Bool == true { return true }
+                if wasOnScreen && windowID.map({ !isOnScreen($0, pid: app.processIdentifier) }) == true { return true }
+                // 台前调度的侧栏缩略图仍属于“在屏”窗口，AXMinimized 也可能保持 false。
+                // 用 WindowServer 实际显示的尺寸确认窗口已缩为缩略图，不能把“属性没变”误判为失败。
+                if let originalFrame, let frame = displayedFrame() {
+                    return frame.width < originalFrame.width * 0.6 && frame.height < originalFrame.height * 0.6
+                }
+                return false
+            })
+            finish(minimized == .reached ? nil : L10n.tr("窗口没有最小化", "The window didn't minimize"))
         }
     }
 

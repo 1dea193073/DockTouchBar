@@ -35,7 +35,8 @@ final class FinderWindowMonitor {
 
     /// 改成盯着这个 PID；和已经在盯的一样就什么都不做（访达一般不会重启，PID 不会变）。
     func watch(pid: pid_t?) {
-        guard pid != watchedPID else { return }
+        // 首次无权限时没有装上 observer，后来授权后，即使 PID 没变也应重新尝试订阅。
+        guard pid != watchedPID || (observer == nil && AXIsProcessTrusted()) else { return }
         stop()
         watchedPID = pid
         guard let pid, AXIsProcessTrusted() else { return }

@@ -1,23 +1,28 @@
 import AppKit
 
 struct DockTile: Equatable {
-    enum Kind: Equatable { case app, divider }
+    enum Kind: Equatable { case app, divider, trash }
 
     let kind: Kind
     let url: URL?
     let bundleID: String?
     var isRunning = false
     var isFrontmost = false
+    var isTemporary = false
 
     static let divider = DockTile(kind: .divider, url: nil, bundleID: nil)
+    static let temporaryDivider = DockTile(kind: .divider, url: nil, bundleID: "temporary-apps")
+    static let trash = DockTile(kind: .trash,
+                               url: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash", isDirectory: true),
+                               bundleID: nil)
 
     /// 同一个位置是不是同一个 App（不看运行状态），用来判断能否原地刷新而不重建列表。
     func isSameSlot(as other: DockTile) -> Bool {
-        kind == other.kind && url == other.url
+        kind == other.kind && url == other.url && bundleID == other.bundleID
     }
 }
 
-/// 按系统 Dock 的顺序生成图标列表：访达 → Dock 里固定的 App → 分隔线 → 其他正在运行的 App。
+/// 临时 App（最近启动的在最左）→ 访达和固定 App → 垃圾桶。
 enum DockModel {
     private static let finderURL = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
     private static let finderID = "com.apple.finder"
@@ -34,6 +39,7 @@ enum DockModel {
             $0.activationPolicy == .regular && $0.processIdentifier != ownPID && $0.bundleURL != nil
         }
         let frontPID = workspace.frontmostApplication?.processIdentifier
+        let pinned = pinnedApps()
 
         var tiles: [DockTile] = []
         var claimed = Set<pid_t>()
@@ -48,7 +54,7 @@ enum DockModel {
                               isFrontmost: finderHasWindows && finderApp?.processIdentifier == frontPID))
 
         if includePinned {
-            for entry in pinnedApps() where entry.bundleID != finderID {
+            for entry in pinned where entry.bundleID != finderID {
                 let app = running.first { matches($0, bundleID: entry.bundleID, url: entry.url) }
                 if let app { claimed.insert(app.processIdentifier) }
                 tiles.append(DockTile(kind: .app, url: entry.url, bundleID: entry.bundleID,
@@ -57,14 +63,22 @@ enum DockModel {
             }
         }
 
-        let others = running.filter { !claimed.contains($0.processIdentifier) }
-        if includePinned && !others.isEmpty {
-            tiles.append(.divider)
+        // 不按激活时间排：点击/切换已经打开的 App 不应让列表跳动。
+        let others = running.filter { !claimed.contains($0.processIdentifier) }.sorted {
+            let left = $0.launchDate ?? .distantPast
+            let right = $1.launchDate ?? .distantPast
+            if left != right { return left > right }
+            return ($0.bundleURL?.path ?? "") < ($1.bundleURL?.path ?? "")
         }
-        for app in others {
-            tiles.append(DockTile(kind: .app, url: app.bundleURL, bundleID: app.bundleIdentifier,
-                                  isRunning: true, isFrontmost: app.processIdentifier == frontPID))
+        let temporaryTiles = others.map { app in
+            DockTile(kind: .app, url: app.bundleURL, bundleID: app.bundleIdentifier,
+                     isRunning: true, isFrontmost: app.processIdentifier == frontPID,
+                     isTemporary: !pinned.contains { matches(app, bundleID: $0.bundleID, url: $0.url) })
         }
+        if !temporaryTiles.isEmpty {
+            tiles.insert(contentsOf: temporaryTiles + [.temporaryDivider], at: 0)
+        }
+        tiles.append(contentsOf: [.divider, .trash])
         return tiles
     }
 
@@ -134,7 +148,13 @@ enum IconCache {
     private static func entry(for url: URL, pointSize: CGFloat) -> Entry? {
         if let cached = cache[url] { return cached }
         // 符号链接的 App（比如 /Applications/Safari.app）直接取图标会带一个小箭头，先解析成真实路径。
-        let icon = NSWorkspace.shared.icon(forFile: url.resolvingSymlinksInPath().path)
+        let icon: NSImage
+        if url == DockTile.trash.url {
+            guard let trashIcon = NSImage(named: NSImage.trashEmptyName) else { return nil }
+            icon = trashIcon
+        } else {
+            icon = NSWorkspace.shared.icon(forFile: url.resolvingSymlinksInPath().path)
+        }
         let bounds = contentBounds(of: icon) ?? CGRect(x: 0, y: 0, width: 1, height: 1)
 
         let pixels = Int(pointSize * 2)

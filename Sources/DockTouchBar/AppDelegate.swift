@@ -1,13 +1,16 @@
 import AppKit
 import ServiceManagement
 
-/// 菜单栏图标 + 设置：开/关、咖啡杯临时隐藏时长、窗口居中按钮及窗口大小、只显示正在运行的 App、跨桌面、双击隐藏、长按退出的时长和提示风格、语言、登录时启动、关于。
+/// 菜单栏设置：显示、手势、系统 Touch Bar 避让、语言、登录启动、权限和关于。
 /// 菜单文字全部在 `menuNeedsUpdate` 里按当前语言重新设置，所以切换语言后不用重启。
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private enum Key {
         static let enabled = "enabled"
         static let showPinned = "showPinned"
-        static let doubleTapHide = "doubleTapHide"
+        // 保留原来的存储键，继承已有用户是否启用双击的选择。
+        static let doubleTapMinimize = "doubleTapHide"
+        static let yieldCapture = "yieldSystemCapture"
+        static let yieldFunctionRow = "yieldFunctionRow"
         static let longPressSeconds = "longPressSeconds"
         static let hideSeconds = "hideSeconds"
         static let showCenterButton = "showCenterButton"
@@ -44,6 +47,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var spacingItem = makeSubmenuItem(
         options: Self.spacingOptions.map { ($0, #selector(setIconSpacing(_:))) })
     private lazy var doubleTapItem = makeItem(#selector(toggleDoubleTap))
+    private lazy var avoidanceItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private lazy var captureAvoidanceItem = makeItem(#selector(toggleCaptureAvoidance))
+    private lazy var fnAvoidanceItem = makeItem(#selector(toggleFunctionRowAvoidance))
+    private lazy var avoidanceExplanation = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private lazy var longPressItem = makeSubmenuItem(
         options: Self.longPressOptions.map { ($0, #selector(setLongPress(_:))) })
     private lazy var hintThemeItem = makeSubmenuItem(
@@ -54,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// “权限”子菜单：列出软件需要的权限、现在的状态，点一下去系统设置里开启。目前只有辅助功能一项。
     private lazy var permissionsItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private lazy var accessibilityRow = makeItem(#selector(requestAccessibility))
-    private lazy var accessibilityUses: [NSMenuItem] = (0..<4).map { _ in
+    private lazy var accessibilityUses: [NSMenuItem] = (0..<5).map { _ in
         let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         item.isEnabled = false
         return item
@@ -75,7 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         defaults.register(defaults: [Key.enabled: true, Key.showPinned: true,
-                                     Key.doubleTapHide: true, Key.longPressSeconds: 3,
+                                     Key.doubleTapMinimize: true, Key.longPressSeconds: 3,
+                                     Key.yieldCapture: true, Key.yieldFunctionRow: true,
                                      Key.hideSeconds: 20, Key.showCenterButton: true,
                                      Key.centerHeight: 80, Key.centerWidth: 0,
                                      Key.iconSpacing: 4])
@@ -106,6 +114,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(longPressItem)
         menu.addItem(hintThemeItem)
         menu.addItem(.separator())
+        let avoidanceMenu = NSMenu()
+        avoidanceMenu.autoenablesItems = false
+        avoidanceMenu.addItem(captureAvoidanceItem)
+        avoidanceMenu.addItem(fnAvoidanceItem)
+        avoidanceMenu.addItem(.separator())
+        avoidanceExplanation.isEnabled = false
+        avoidanceMenu.addItem(avoidanceExplanation)
+        avoidanceItem.submenu = avoidanceMenu
+        menu.addItem(avoidanceItem)
         menu.addItem(languageItem)
         menu.addItem(loginItem)
         menu.addItem(.separator())
@@ -119,7 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = item
 
         dock.showsPinnedApps = defaults.bool(forKey: Key.showPinned)
-        dock.doubleTapHides = defaults.bool(forKey: Key.doubleTapHide)
+        dock.doubleTapMinimizes = defaults.bool(forKey: Key.doubleTapMinimize)
+        dock.yieldsToSystemCapture = defaults.bool(forKey: Key.yieldCapture)
+        dock.yieldsToFunctionRow = defaults.bool(forKey: Key.yieldFunctionRow)
         dock.longPressDuration = TimeInterval(defaults.integer(forKey: Key.longPressSeconds))
         dock.quitHintTheme = QuitHintTheme.saved
         dock.showsCenterButton = defaults.bool(forKey: Key.showCenterButton)
@@ -186,8 +205,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             option.state = option.tag == width ? .on : .off
         }
 
-        doubleTapItem.title = L10n.tr("双击图标：隐藏 App", "Double-tap an icon: hide the app")
-        doubleTapItem.state = defaults.bool(forKey: Key.doubleTapHide) ? .on : .off
+        doubleTapItem.title = L10n.tr("双击图标：最小化当前窗口", "Double-tap an icon: minimize the window")
+        doubleTapItem.state = defaults.bool(forKey: Key.doubleTapMinimize) ? .on : .off
+        doubleTapItem.toolTip = L10n.tr("等同窗口左上角黄色按钮，需要辅助功能权限", "Same as the yellow window button; needs Accessibility permission")
+        avoidanceItem.title = L10n.tr("系统 Touch Bar 避让", "Yield to system Touch Bar controls")
+        captureAvoidanceItem.title = L10n.tr("截图 / 录屏时自动避让", "Yield during screenshots / recording")
+        captureAvoidanceItem.state = defaults.bool(forKey: Key.yieldCapture) ? .on : .off
+        fnAvoidanceItem.title = L10n.tr("按住 Fn 时自动避让", "Yield while Fn is held")
+        fnAvoidanceItem.state = defaults.bool(forKey: Key.yieldFunctionRow) ? .on : .off
+        avoidanceExplanation.title = L10n.tr("开启时 Dock 临时隐藏，结束后自动恢复", "When on, the Dock hides temporarily and returns afterward")
 
         let seconds = defaults.integer(forKey: Key.longPressSeconds)
         longPressItem.title = L10n.tr("长按图标：退出 App（", "Long-press an icon: quit the app (")
@@ -228,6 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             L10n.tr("用来：跨桌面切换到 App 的窗口", "Used to: jump to an app's window on another desktop"),
             L10n.tr("用来：窗口居中、最大化", "Used to: center and maximize a window"),
             L10n.tr("用来：长按只关当前窗口、发现确认框", "Used to: close just the current window on long-press, and spot a confirmation dialog"),
+            L10n.tr("用来：双击最小化窗口、监听 Fn 避让", "Used to: minimize windows on double-tap and detect Fn for yielding"),
             L10n.tr("没有它：其他功能照常，只是这几项不可用", "Without it: everything else works, only these are unavailable"),
         ]
         for (item, text) in zip(accessibilityUses, uses) { item.title = text }
@@ -287,9 +314,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleDoubleTap() {
-        let on = !defaults.bool(forKey: Key.doubleTapHide)
-        defaults.set(on, forKey: Key.doubleTapHide)
-        dock.doubleTapHides = on
+        let on = !defaults.bool(forKey: Key.doubleTapMinimize)
+        defaults.set(on, forKey: Key.doubleTapMinimize)
+        dock.doubleTapMinimizes = on
+    }
+
+    @objc private func toggleCaptureAvoidance() {
+        let on = !defaults.bool(forKey: Key.yieldCapture)
+        defaults.set(on, forKey: Key.yieldCapture)
+        dock.yieldsToSystemCapture = on
+    }
+
+    @objc private func toggleFunctionRowAvoidance() {
+        let on = !defaults.bool(forKey: Key.yieldFunctionRow)
+        defaults.set(on, forKey: Key.yieldFunctionRow)
+        dock.yieldsToFunctionRow = on
     }
 
     @objc private func setLongPress(_ sender: NSMenuItem) {

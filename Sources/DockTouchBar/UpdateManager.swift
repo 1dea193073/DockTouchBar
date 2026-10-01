@@ -45,12 +45,12 @@ final class UpdateManager: NSObject, ObservableObject {
 
     /// 检查新版本。silent 为 true 时如果已是最新版本则不打扰用户（用于启动或后台静默检查）
     func checkForUpdates(silent: Bool = false) {
-        guard state != .checking, case .downloading = state else {
-            if state == .checking { return }
-            executeCheck(silent: silent)
+        switch state {
+        case .checking, .downloading, .verifying, .installing:
             return
+        default:
+            executeCheck(silent: silent)
         }
-        executeCheck(silent: silent)
     }
 
     private func executeCheck(silent: Bool) {
@@ -69,6 +69,10 @@ final class UpdateManager: NSObject, ObservableObject {
                     } else {
                         self.state = .idle
                     }
+                    return
+                }
+                guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
+                    self.state = silent ? .idle : .failed(L10n.tr("更新服务器响应异常", "Update server returned an error"))
                     return
                 }
 
@@ -157,7 +161,13 @@ final class UpdateManager: NSObject, ObservableObject {
 
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("DockTouchBarUpdate-\(UUID().uuidString)")
         self.currentTempDir = tempDir
-        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        } catch {
+            currentTempDir = nil
+            state = .failed(error.localizedDescription)
+            return
+        }
 
         let sessionConfig = URLSessionConfiguration.default
         let session = URLSession(configuration: sessionConfig, delegate: self, delegateQueue: nil)
@@ -173,6 +183,7 @@ final class UpdateManager: NSObject, ObservableObject {
 
     /// 取消下载
     func cancel() {
+        guard case .downloading = state else { return }
         downloadTask?.cancel()
         downloadTask = nil
         downloadSession?.invalidateAndCancel()
@@ -192,7 +203,8 @@ final class UpdateManager: NSObject, ObservableObject {
 
     private func processDownloadedFile(at downloadedLocation: URL) {
         guard let tempDir = currentTempDir, let release = currentRelease else {
-            DispatchQueue.main.async { self.state = .failed(L10n.tr("升级临时目录无效", "Invalid update directory")) }
+            state = .failed(L10n.tr("升级临时目录无效", "Invalid update directory"))
+            try? FileManager.default.removeItem(at: downloadedLocation)
             return
         }
 
@@ -200,13 +212,12 @@ final class UpdateManager: NSObject, ObservableObject {
         do {
             try FileManager.default.moveItem(at: downloadedLocation, to: localFile)
         } catch {
-            DispatchQueue.main.async {
-                self.state = .failed(L10n.tr("保存安装文件失败：\(error.localizedDescription)", "Failed to save downloaded file"))
-            }
+            state = .failed(L10n.tr("保存安装文件失败：\(error.localizedDescription)", "Failed to save downloaded file"))
+            try? FileManager.default.removeItem(at: downloadedLocation)
             return
         }
 
-        DispatchQueue.main.async { self.state = .verifying }
+        state = .verifying
 
         // 在后台线程解包与校验
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -281,8 +292,7 @@ final class UpdateManager: NSObject, ObservableObject {
             let detachProcess = Process()
             detachProcess.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
             detachProcess.arguments = ["detach", mount, "-force"]
-            try? detachProcess.run()
-            detachProcess.waitUntilExit()
+            if (try? detachProcess.run()) != nil { detachProcess.waitUntilExit() }
         }
 
         let mountedAppURL = URL(fileURLWithPath: mount).appendingPathComponent("DockTouchBar.app")
@@ -355,10 +365,9 @@ final class UpdateManager: NSObject, ObservableObject {
         let currentTeamID = Self.extractTeamID(for: Bundle.main.bundleURL)
         let newTeamID = Self.extractTeamID(for: appURL)
 
-        if let currentTeamID, !currentTeamID.isEmpty {
-            guard newTeamID == currentTeamID else {
-                throw UpdateError.teamIDMismatch
-            }
+        guard let currentTeamID, !currentTeamID.isEmpty, currentTeamID != "not set",
+              newTeamID == currentTeamID else {
+            throw UpdateError.teamIDMismatch
         }
     }
 
@@ -368,7 +377,7 @@ final class UpdateManager: NSObject, ObservableObject {
         process.arguments = ["-dvv", bundleURL.path]
         let pipe = Pipe()
         process.standardError = pipe
-        try? process.run()
+        do { try process.run() } catch { return nil }
         process.waitUntilExit()
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
@@ -390,13 +399,58 @@ final class UpdateManager: NSObject, ObservableObject {
 
         // 编写安全的外部替换重启脚本
         let scriptURL = tempDir.appendingPathComponent("update_and_restart.sh")
-        let scriptContent = """
+        try Self.replacementScript.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let launcher = Process()
+        launcher.executableURL = URL(fileURLWithPath: "/bin/bash")
+        // 路径通过参数传递，不插入 shell 源码（路径可以包含空格、引号、$ 或反引号）。
+        launcher.arguments = [scriptURL.path, String(currentPID), newAppURL.path, targetAppURL.path, tempDir.path]
+        let logURL = tempDir.appendingPathComponent("install.log")
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        let log = try FileHandle(forWritingTo: logURL)
+        defer { try? log.close() }
+        launcher.standardOutput = log
+        launcher.standardError = log
+        try launcher.run()
+
+        DispatchQueue.main.async { NSApp.terminate(nil) }
+    }
+
+    /// 同一目录预拷贝，旧包改名保留；安装或启动命令失败时回退。失败时保留临时目录和日志。
+    static let replacementScript = """
         #!/bin/bash
-        set -e
-        PID="\(currentPID)"
-        SRC="\(newAppURL.path)"
-        DEST="\(targetAppURL.path)"
-        TEMP="\(tempDir.path)"
+        set -euo pipefail
+        PID="$1"
+        SRC="$2"
+        DEST="$3"
+        TEMP="$4"
+        case "$PID" in ''|*[!0-9]*) exit 64 ;; esac
+        case "$DEST" in /*.app) ;; *) exit 64 ;; esac
+        [ -d "$SRC" ] && [ -d "$DEST" ] && [ -d "$TEMP" ] || exit 1
+        PARENT="$(dirname "$DEST")"
+        STAGE="$PARENT/.DockTouchBar-update-$$.app"
+        BACKUP="$PARENT/.DockTouchBar-backup-$$.app"
+        MOVED_OLD=0
+        cleanup() {
+            STATUS=$?
+            trap - EXIT
+            if [ "$STATUS" -ne 0 ] && [ "$MOVED_OLD" -eq 1 ]; then
+                # 即使删除失败，也继续尝试回退；旧包备份不会被失败清理删除。
+                rm -rf "$DEST" || true
+                if mv "$BACKUP" "$DEST"; then
+                    /usr/bin/open -n "$DEST" || true
+                fi
+            fi
+            rm -rf "$STAGE" || true
+            if [ "$STATUS" -eq 0 ]; then
+                rm -rf "$BACKUP" "$TEMP" || true
+            fi
+            exit "$STATUS"
+        }
+        trap cleanup EXIT
+
+        /usr/bin/ditto "$SRC" "$STAGE"
 
         # 等待旧进程安全退出（最多等待 10 秒）
         for i in {1..50}; do
@@ -405,44 +459,29 @@ final class UpdateManager: NSObject, ObservableObject {
             fi
             sleep 0.2
         done
-
-        # 替换 App
-        if [ -d "$SRC" ] && [ -n "$DEST" ]; then
-            rm -rf "$DEST"
-            cp -R "$SRC" "$DEST"
-            # 移除 Gatekeeper 隔离属性，保证更新后无安全阻拦弹窗
-            xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
-            # 重新打开应用
-            open -n "$DEST"
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "Old process did not exit; installation aborted." >&2
+            exit 1
         fi
 
-        # 清理临时文件
-        rm -rf "$TEMP"
-        exit 0
+        mv "$DEST" "$BACKUP"
+        MOVED_OLD=1
+        mv "$STAGE" "$DEST"
+        /usr/bin/open -n "$DEST"
         """
-
-        try scriptContent.write(to: scriptURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
-
-        // 启动后台更新脚本
-        let launcher = Process()
-        launcher.executableURL = URL(fileURLWithPath: "/bin/bash")
-        launcher.arguments = [scriptURL.path]
-        try launcher.run()
-
-        // 当前应用退出，把控制权交给脚本
-        DispatchQueue.main.async {
-            NSApp.terminate(nil)
-        }
-    }
 
     // MARK: - 版本比对算法
 
     static func isVersion(_ newVer: String, greaterThan currentVer: String) -> Bool {
         let cleanNew = newVer.trimmingCharacters(in: CharacterSet(charactersIn: "vV \t\n"))
         let cleanCurrent = currentVer.trimmingCharacters(in: CharacterSet(charactersIn: "vV \t\n"))
-        let newParts = cleanNew.split(separator: ".").compactMap { Int($0) }
-        let currentParts = cleanCurrent.split(separator: ".").compactMap { Int($0) }
+        func parts(_ value: String) -> [Int]? {
+            let segments = value.split(separator: ".", omittingEmptySubsequences: false)
+            guard !segments.isEmpty, segments.allSatisfy({ !$0.isEmpty && $0.allSatisfy { ("0"..."9").contains($0) } }) else { return nil }
+            let numbers = segments.compactMap { Int($0) }
+            return numbers.count == segments.count ? numbers : nil
+        }
+        guard let newParts = parts(cleanNew), let currentParts = parts(cleanCurrent) else { return false }
         let maxCount = max(newParts.count, currentParts.count)
         for i in 0..<maxCount {
             let n = i < newParts.count ? newParts[i] : 0
@@ -463,7 +502,7 @@ extension UpdateManager: URLSessionDownloadDelegate {
         guard totalBytesExpectedToWrite > 0 else { return }
         let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
         DispatchQueue.main.async {
-            if case .downloading = self.state {
+            if self.downloadSession === session, self.downloadTask === downloadTask, case .downloading = self.state {
                 self.state = .downloading(progress: progress)
             }
         }
@@ -471,12 +510,38 @@ extension UpdateManager: URLSessionDownloadDelegate {
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didFinishDownloadingTo location: URL) {
-        processDownloadedFile(at: location)
+        // URLSession 的临时文件只在回调期间有效：先保存，再回主线程核对是否还是当前下载。
+        let staged = FileManager.default.temporaryDirectory.appendingPathComponent("DockTouchBarDownload-\(UUID().uuidString)")
+        let result: Result<URL, Error>
+        do {
+            guard let response = downloadTask.response as? HTTPURLResponse,
+                  (200..<300).contains(response.statusCode) else { throw URLError(.badServerResponse) }
+            try FileManager.default.moveItem(at: location, to: staged)
+            result = .success(staged)
+        } catch { result = .failure(error) }
+        DispatchQueue.main.async {
+            guard self.downloadSession === session, self.downloadTask === downloadTask,
+                  case .downloading = self.state else {
+                try? FileManager.default.removeItem(at: staged)
+                return
+            }
+            self.downloadTask = nil
+            self.downloadSession = nil
+            session.finishTasksAndInvalidate()
+            switch result {
+            case .success(let location): self.processDownloadedFile(at: location)
+            case .failure(let error): self.state = .failed(error.localizedDescription)
+            }
+        }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error, (error as NSError).code != NSURLErrorCancelled {
             DispatchQueue.main.async {
+                guard self.downloadSession === session, self.downloadTask === task else { return }
+                self.downloadTask = nil
+                self.downloadSession = nil
+                session.finishTasksAndInvalidate()
                 self.state = .failed(L10n.tr("下载出错：\(error.localizedDescription)", "Download error: \(error.localizedDescription)"))
             }
         }

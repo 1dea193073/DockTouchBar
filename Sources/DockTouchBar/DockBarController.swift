@@ -85,22 +85,25 @@ final class DockBarController: NSObject {
     private var controlStripPID: pid_t?
     private let finderWindowMonitor = FinderWindowMonitor()
     private lazy var systemTouchBarActivity = SystemTouchBarActivityMonitor { [weak self] isActive in
+        guard let self, self.yieldsToSystemCapture, self.isActive else { return }
         if isActive {
-            self?.beginPause(for: .systemCapture)
+            self.beginPause(for: .systemCapture)
         } else {
-            self?.endPause(for: .systemCapture, present: true)
+            self.endPause(for: .systemCapture, present: true)
         }
     }
     private lazy var functionRowActivity = FunctionRowActivityMonitor { [weak self] isDown in
+        guard let self, self.yieldsToFunctionRow, self.isActive else { return }
         if isDown {
-            self?.beginPause(for: .functionRow)
+            self.beginPause(for: .functionRow)
         } else {
-            self?.endPause(for: .functionRow, present: true)
+            self.endPause(for: .functionRow, present: true)
         }
     }
 
     /// 正在进行的一次按压（从按住 `pressArmDelay` 秒开始，到松手结束）。
     private struct Press {
+        let id = UUID()
         let index: Int
         let tile: DockTile
         let start: NSPoint
@@ -138,7 +141,13 @@ final class DockBarController: NSObject {
         didSet { pressRecognizer.isEnabled = longPressDuration > 0 }
     }
 
-    var doubleTapHides = true
+    var doubleTapMinimizes = true
+    var yieldsToSystemCapture = true {
+        didSet { if oldValue != yieldsToSystemCapture { updateSystemCaptureAvoidance() } }
+    }
+    var yieldsToFunctionRow = true {
+        didSet { if oldValue != yieldsToFunctionRow { updateFunctionRowAvoidance() } }
+    }
 
     /// 长按退出提示的风格。
     var quitHintTheme = QuitHintTheme.spring {
@@ -250,8 +259,8 @@ final class DockBarController: NSObject {
         TouchBarBridge.addTrayItem(trayItem)
         controlStripPID = Self.currentControlStripPID()
         startObserving()
-        systemTouchBarActivity.start()
-        functionRowActivity.start()
+        updateSystemCaptureAvoidance()
+        updateFunctionRowAvoidance()
         updateWindowWatching()
         finderWindowMonitor.watch(pid: DockModel.finderPID())
         reload()
@@ -277,6 +286,26 @@ final class DockBarController: NSObject {
 
     // MARK: - 显示与恢复
 
+    private func updateSystemCaptureAvoidance() {
+        guard isActive else { return }
+        if yieldsToSystemCapture {
+            systemTouchBarActivity.start()
+        } else {
+            systemTouchBarActivity.stop()
+            endPause(for: .systemCapture, present: true)
+        }
+    }
+
+    private func updateFunctionRowAvoidance() {
+        guard isActive else { return }
+        if yieldsToFunctionRow {
+            functionRowActivity.start()
+        } else {
+            functionRowActivity.stop()
+            endPause(for: .functionRow, present: true)
+        }
+    }
+
     private func present() {
         guard isActive, !isPaused else { return }
         TouchBarBridge.present(touchBar, trayIdentifier: trayID)
@@ -284,8 +313,11 @@ final class DockBarController: NSObject {
 
     /// 系统控制条里的入口按钮：暂停中就恢复，否则重新显示。
     @objc private func trayTapped() {
+        systemTouchBarActivity.refreshCurrentState()
+        functionRowActivity.refreshCurrentState()
         endPause(for: .coffee, present: false)
         present()
+        presentAgainIfHidden(after: 1)
     }
 
     // MARK: - 临时暂停（兜底：屏幕被调黑时能用系统的亮度条）
@@ -397,17 +429,26 @@ final class DockBarController: NSObject {
 
     // MARK: - 点击 / 双击
 
-    /// 单击切换；同一个图标在 `doubleTapInterval` 内再点一次就隐藏。
-    /// 第一下照常切换、不等待，所以单击没有延迟；双击的净效果是“切过去再藏起来”。
+    /// 第一下立即切换；同一个图标在 `doubleTapInterval` 内再点一次就最小化当前窗口。
     private func handleTap(at index: Int) {
-        guard tiles.indices.contains(index), tiles[index].kind == .app else { return }
+        guard tiles.indices.contains(index) else { return }
         let tile = tiles[index]
+        guard tile.kind != .divider else { return }
         (scrubber.itemViewForItem(at: index) as? DockTileView)?.flash()
+        if tile.kind == .trash {
+            lastTap = nil
+            if let url = tile.url { NSWorkspace.shared.open(url) }
+            return
+        }
         let now = Date()
-        if doubleTapHides, let last = lastTap, last.tile.isSameSlot(as: tile),
+        if doubleTapMinimizes, let last = lastTap, last.tile.isSameSlot(as: tile),
            now.timeIntervalSince(last.time) < Metrics.doubleTapInterval {
             lastTap = nil
-            AppSwitcher.hide(tile)
+            AppSwitcher.minimize(tile) { [weak self] message in
+                guard let self, let message else { return }
+                self.quitHintLeading.constant = Metrics.maxDockWidth - QuitHintView.width
+                self.quitHint.showResultNotice(message)
+            }
         } else {
             lastTap = (tile, now)
             AppSwitcher.switchTo(tile)
@@ -560,10 +601,10 @@ final class DockBarController: NSObject {
         // 松手时 NSScrubber 可能照常回调 didSelect，也可能因为手势已识别而不回调；
         // 稍等一下，没收到回调就自己补一次点击。
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            guard let self, let current = self.press else { return }
+            guard let self, let active = self.press, active.id == current.id else { return }
             self.press = nil
-            if !current.moved && !current.sawSelection {
-                self.handleTap(at: current.index)
+            if !active.moved && !active.sawSelection {
+                self.handleTap(at: active.index)
             }
         }
     }
@@ -654,20 +695,68 @@ final class DockBarController: NSObject {
     func reload() {
         let newTiles = DockModel.tiles(includePinned: showsPinnedApps)
         guard newTiles != tiles else { return }
+        let oldTiles = tiles
         let sameSlots = newTiles.count == tiles.count
             && zip(newTiles, tiles).allSatisfy { $0.isSameSlot(as: $1) }
-        tiles = newTiles
         if sameSlots {
+            tiles = newTiles
             // 位置没变、只是运行/前台状态变了：原地刷新每个图标的状态点和亮暗，不重排列表、不打断滚动位置。
             for (index, tile) in tiles.enumerated() {
                 (scrubber.itemViewForItem(at: index) as? DockTileView)?.configure(with: tile, iconSize: Metrics.iconSize)
             }
         } else {
+            let revealNewApp = !oldTiles.isEmpty && newTiles.contains { tile in
+                tile.isTemporary && !oldTiles.contains { $0.isSameSlot(as: tile) }
+            }
+            let visibleRect = flowLayout.visibleRect
+            // 记住左侧可见的、刷新后仍存在的图标；它被关掉时改用旁边的图标。
+            let visibleIndexes = oldTiles.indices.filter { index in
+                flowLayout.layoutAttributesForItem(at: index)?.frame.intersects(visibleRect) == true
+            }
+            let anchor = visibleIndexes.compactMap { index -> DockTile? in
+                let tile = oldTiles[index]
+                return newTiles.contains { $0.isSameSlot(as: tile) } ? tile : nil
+            }.first
             // 图标位置变了，按压记录的序号已经不对，直接作废。
             cancelPress()
+            lastTap = nil
+            // NSScrubber 的批量操作按数组顺序执行；只增删/移动变化的项，避免 reloadData 归零滚动位置。
+            scrubber.performSequentialBatchUpdates {
+                for index in tiles.indices.reversed() where !newTiles.contains(where: { tiles[index].isSameSlot(as: $0) }) {
+                    tiles.remove(at: index)
+                    scrubber.removeItems(at: IndexSet(integer: index))
+                }
+                for (index, tile) in newTiles.enumerated() {
+                    if index < tiles.count, tiles[index].isSameSlot(as: tile) { continue }
+                    if let previous = tiles.indices.dropFirst(index).first(where: { tiles[$0].isSameSlot(as: tile) }) {
+                        let moved = tiles.remove(at: previous)
+                        tiles.insert(moved, at: index)
+                        scrubber.moveItem(at: previous, to: index)
+                    } else {
+                        tiles.insert(tile, at: index)
+                        scrubber.insertItems(at: IndexSet(integer: index))
+                    }
+                }
+                // 防御重复分隔项或未来新增的重复槽位。
+                while tiles.count > newTiles.count {
+                    let index = tiles.count - 1
+                    tiles.remove(at: index)
+                    scrubber.removeItems(at: IndexSet(integer: index))
+                }
+                tiles = newTiles
+                scrubber.selectedIndex = -1
+            }
             recomputeContentWidth()
             updateDockWidth()
-            scrubber.reloadData()
+            container.layoutSubtreeIfNeeded()
+            if !tiles.isEmpty && (revealNewApp || visibleRect.minX <= 0) {
+                scrubber.scrollItem(at: 0, to: .leading)
+            } else if let anchor, let index = tiles.firstIndex(where: { $0.isSameSlot(as: anchor) }) {
+                scrubber.scrollItem(at: index, to: .leading)
+            }
+            for (index, tile) in tiles.enumerated() {
+                (scrubber.itemViewForItem(at: index) as? DockTileView)?.configure(with: tile, iconSize: Metrics.iconSize)
+            }
         }
     }
 
@@ -798,15 +887,17 @@ final class DockTileView: NSScrubberItemView {
         CATransaction.setDisableActions(true)
         iconLayer.contents = tile.url.flatMap { IconCache.image(for: $0, pointSize: iconSize) }
         iconContentRect = tile.url.flatMap { IconCache.contentRect(for: $0, pointSize: iconSize) }
-        iconLayer.isHidden = tile.kind != .app
+        iconLayer.isHidden = tile.kind == .divider
         // 没运行的 App（固定在栏里但还没启动）图标暗一些，一眼能和运行中的分开，但不用暗到看不清图标本身。
-        baseOpacity = tile.isRunning ? 1 : 0.6
+        baseOpacity = tile.kind == .trash || tile.isRunning ? 1 : 0.6
         iconLayer.opacity = baseOpacity
         // 仅当前激活（前台）的应用显示右上角小红点；未运行应用已通过透明度区分，后台运行应用不需要灰色圆圈。
         badgeLayer.isHidden = tile.kind != .app || !tile.isFrontmost
         badgeLayer.backgroundColor = NSColor.systemRed.cgColor
         badgeLayer.borderColor = NSColor.white.cgColor
         dividerLayer.isHidden = tile.kind != .divider
+        setAccessibilityLabel(tile.kind == .trash ? L10n.tr("垃圾桶", "Trash")
+                              : tile.url?.deletingPathExtension().lastPathComponent)
         CATransaction.commit()
         needsLayout = true
     }
