@@ -121,12 +121,13 @@ enum TouchBarSetup {
         return String(cString: buffer)
     }
 
-    /// 带 Touch Bar 的机型（2016–2020 款 13/15/16 英寸 MacBook Pro）。
+    /// 已知带 Touch Bar 的机型（2016–2022 款 MacBook Pro，含 M1/M2 的 13 英寸）。名单可能不全，只用于诊断提示。
     static var hasTouchBarHardware: Bool {
         let touchBarModels: Set<String> = [
             "MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3",
             "MacBookPro15,1", "MacBookPro15,2", "MacBookPro15,3", "MacBookPro15,4",
             "MacBookPro16,1", "MacBookPro16,2", "MacBookPro16,3", "MacBookPro16,4",
+            "MacBookPro17,1", "Mac14,7",
         ]
         return touchBarModels.contains(hardwareModel)
     }

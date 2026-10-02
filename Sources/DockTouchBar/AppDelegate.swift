@@ -455,9 +455,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             lines.append((ok ? "✓ " : "✗ ") + (ok ? okText : badText))
             if !ok { problems += 1 }
         }
-        row(TouchBarSetup.hasTouchBarHardware,
-            L10n.tr("这台 Mac 带 Touch Bar（\(TouchBarSetup.hardwareModel)）", "This Mac has a Touch Bar (\(TouchBarSetup.hardwareModel))"),
-            L10n.tr("这台 Mac（\(TouchBarSetup.hardwareModel)）没有 Touch Bar，Dock 无处显示", "This Mac (\(TouchBarSetup.hardwareModel)) has no Touch Bar, so the Dock has nowhere to show"))
+        // 机型名单可能不全：Dock 已经显示出来说明一定有 Touch Bar；名单里没有的机型只提示，不算问题。
+        if TouchBarSetup.hasTouchBarHardware || dock.isDisplayed {
+            lines.append("✓ " + L10n.tr("这台 Mac 带 Touch Bar（\(TouchBarSetup.hardwareModel)）", "This Mac has a Touch Bar (\(TouchBarSetup.hardwareModel))"))
+        } else {
+            lines.append("· " + L10n.tr("机型 \(TouchBarSetup.hardwareModel) 不在已知带 Touch Bar 的名单里（名单可能不全，若你的 Mac 有 Touch Bar 可忽略）",
+                                       "Model \(TouchBarSetup.hardwareModel) isn't in the known Touch Bar list (the list may be incomplete; ignore if your Mac has one)"))
+        }
         row(TouchBarBridge.isAvailable,
             L10n.tr("系统 Touch Bar 接口可用", "System Touch Bar API available"),
             L10n.tr("找不到系统 Touch Bar 接口（当前系统版本可能不支持）", "System Touch Bar API not found (this macOS version may be unsupported)"))
