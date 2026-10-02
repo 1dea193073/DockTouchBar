@@ -251,6 +251,11 @@ final class DockBarController: NSObject {
 
     // MARK: - 开启 / 关闭
 
+    /// 自检用：Dock 此刻是否真的显示在 Touch Bar 上。
+    var isDisplayed: Bool { touchBar.isVisible }
+    /// 自检用：Dock 是否在运行且没有被临时让位（截图、Fn、咖啡杯）。
+    var isExpectedToShow: Bool { isActive && !isPaused }
+
     func start() {
         guard !isActive, TouchBarBridge.isAvailable else { return }
         isActive = true

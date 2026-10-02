@@ -147,6 +147,10 @@ Right after it happens, run this from a clone of the repo. It is read-only and p
 tools/diagnose-switch.sh com.google.Chrome
 ```
 
+## Can't see the Dock?
+
+Most common cause: System Settings → Keyboard → “Touch Bar Shows” is set to “F1, F2, etc. keys”, which fills the whole Touch Bar with function keys. Since 1.16 the app detects this and offers to switch it to “Expanded Control Strip” on first launch. You can also click “Diagnose: why can't I see the Dock?” in the menu bar menu to check each possible cause and copy a report for feedback. Holding Fn still shows F1–F12 afterwards.
+
 ## Build from source
 
 Requires the Xcode command line tools.

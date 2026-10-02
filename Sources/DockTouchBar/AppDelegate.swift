@@ -35,6 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let defaults = UserDefaults.standard
     private var statusItem: NSStatusItem?
 
+    private lazy var setupWarningItem = makeItem(#selector(fixTouchBarSetup))
+    private lazy var diagnoseItem = makeItem(#selector(showDiagnostics))
+    /// 显示后自检没通过：Dock 应该在显示却没有出现。
+    private var dockFailedToShow = false
     private lazy var enabledItem = makeItem(#selector(toggleEnabled))
     private lazy var hideDurationItem = makeSubmenuItem(
         options: Self.hideOptions.map { ($0, #selector(setHideDuration(_:))) })
@@ -92,6 +96,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.autoenablesItems = false
         menu.delegate = self
         // 分组：显示 → 切换与手势 → 通用 → 关于/退出
+        setupWarningItem.isHidden = true
+        menu.addItem(setupWarningItem)
         menu.addItem(enabledItem)
         menu.addItem(hideDurationItem)
         menu.addItem(pinnedItem)
@@ -126,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(languageItem)
         menu.addItem(loginItem)
         menu.addItem(.separator())
+        menu.addItem(diagnoseItem)
         menu.addItem(checkUpdatesItem)
         menu.addItem(aboutItem)
         menu.addItem(quitItem)
@@ -147,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         dock.pauseDuration = TimeInterval(defaults.integer(forKey: Key.hideSeconds))
         dock.iconSpacing = CGFloat(defaults.integer(forKey: Key.iconSpacing))
         applyEnabled()
+        scheduleDisplayCheck()
     }
 
     /// App 已经在运行时，再从「应用程序」或启动台打开它：弹出菜单栏菜单，方便开关和设置。
@@ -160,6 +168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        refreshSetupWarning()
+        diagnoseItem.title = L10n.tr("诊断：为什么看不到 Dock？…", "Diagnose: why can't I see the Dock?…")
         let available = TouchBarBridge.isAvailable
         enabledItem.isEnabled = available
         enabledItem.title = available
@@ -380,6 +390,118 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func showAbout() {
         about.show()
+    }
+
+    // MARK: - Touch Bar 显示自检与修复
+
+    /// 启动后（以及系统设置被改动后）检查：显示模式是否会盖住 Dock，Dock 是否真的出现了。
+    private func scheduleDisplayCheck() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard let self else { return }
+            self.runDisplayCheck()
+            if TouchBarSetup.modeHidesDock, !self.defaults.bool(forKey: "setupPromptShown") {
+                self.defaults.set(true, forKey: "setupPromptShown")
+                self.fixTouchBarSetup()
+            }
+        }
+    }
+
+    private func runDisplayCheck() {
+        let wanted = defaults.bool(forKey: Key.enabled) && TouchBarBridge.isAvailable
+        dockFailedToShow = wanted && dock.isExpectedToShow && !dock.isDisplayed
+        refreshSetupWarning()
+    }
+
+    private func refreshSetupWarning() {
+        let modeProblem = TouchBarSetup.modeHidesDock && defaults.bool(forKey: Key.enabled)
+        setupWarningItem.isHidden = !modeProblem
+        setupWarningItem.title = L10n.tr("⚠︎ Touch Bar 正显示 F1–F12，Dock 无法出现 — 点此修复…",
+                                         "⚠︎ Touch Bar is showing F1–F12, so the Dock can't appear — click to fix…")
+        let warn = modeProblem || dockFailedToShow
+        let name = warn ? "exclamationmark.triangle" : "dock.rectangle"
+        statusItem?.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: "Touch Bar Dock")
+    }
+
+    @objc private func fixTouchBarSetup() {
+        guard TouchBarSetup.modeHidesDock else { showDiagnostics(); return }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = L10n.tr("Touch Bar 被系统设为「显示 F1、F2 等键」",
+                                    "Your Touch Bar is set to show F1, F2, etc. keys")
+        alert.informativeText = L10n.tr(
+            "这个设置会让整条 Touch Bar 被功能键占满，Dock 无法显示。\n\n可以改成「展开的控制条」（等同于 系统设置 → 键盘 → 触控栏显示）。改完后 F1–F12 不再默认显示，按住 Fn 键即可看到。之后想还原，在同一处改回即可（Dock 会随之失效）。",
+            "That setting fills the whole Touch Bar with function keys, so the Dock can't appear.\n\nYou can switch it to “Expanded Control Strip” (same as System Settings → Keyboard → Touch Bar Shows). F1–F12 will no longer be shown by default; hold Fn to see them. To undo, change it back in the same place (the Dock will stop showing again).")
+        alert.addButton(withTitle: L10n.tr("改为展开的控制条（推荐）", "Switch to Expanded Control Strip (recommended)"))
+        alert.addButton(withTitle: L10n.tr("保持现状", "Keep as is"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if TouchBarSetup.applyWorkingMode() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self else { return }
+                self.dock.stop()
+                self.applyEnabled()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.runDisplayCheck() }
+            }
+        } else {
+            showAlert(L10n.tr("修改失败", "Couldn't change the setting"),
+                      L10n.tr("请手动打开 系统设置 → 键盘，把「触控栏显示」改为「展开的控制条」。",
+                              "Open System Settings → Keyboard and set “Touch Bar Shows” to “Expanded Control Strip”."))
+        }
+    }
+
+    private func diagnosticReport() -> (text: String, problems: Int) {
+        var lines: [String] = []
+        var problems = 0
+        func row(_ ok: Bool, _ okText: String, _ badText: String) {
+            lines.append((ok ? "✓ " : "✗ ") + (ok ? okText : badText))
+            if !ok { problems += 1 }
+        }
+        row(TouchBarSetup.hasTouchBarHardware,
+            L10n.tr("这台 Mac 带 Touch Bar（\(TouchBarSetup.hardwareModel)）", "This Mac has a Touch Bar (\(TouchBarSetup.hardwareModel))"),
+            L10n.tr("这台 Mac（\(TouchBarSetup.hardwareModel)）没有 Touch Bar，Dock 无处显示", "This Mac (\(TouchBarSetup.hardwareModel)) has no Touch Bar, so the Dock has nowhere to show"))
+        row(TouchBarBridge.isAvailable,
+            L10n.tr("系统 Touch Bar 接口可用", "System Touch Bar API available"),
+            L10n.tr("找不到系统 Touch Bar 接口（当前系统版本可能不支持）", "System Touch Bar API not found (this macOS version may be unsupported)"))
+        row(!TouchBarSetup.modeHidesDock,
+            L10n.tr("触控栏显示模式：\(TouchBarSetup.modeDescription)", "Touch Bar Shows: \(TouchBarSetup.modeDescription)"),
+            L10n.tr("触控栏显示模式是「\(TouchBarSetup.modeDescription)」，会盖住 Dock → 菜单里点「修复」", "Touch Bar Shows is “\(TouchBarSetup.modeDescription)”, which covers the Dock → use Fix in the menu"))
+        row(defaults.bool(forKey: Key.enabled),
+            L10n.tr("「在 Touch Bar 上显示 Dock」已开启", "“Show Dock on Touch Bar” is on"),
+            L10n.tr("「在 Touch Bar 上显示 Dock」被关闭了 → 在菜单里勾选", "“Show Dock on Touch Bar” is off → turn it on in the menu"))
+        row(AppSwitcher.hasAccessibilityAccess,
+            L10n.tr("辅助功能权限已开启", "Accessibility permission is on"),
+            L10n.tr("辅助功能权限未开启（不影响显示，只影响窗口切换、居中、双击最小化等）", "Accessibility permission is off (doesn't affect display; affects window switching, centering, double-tap minimize)"))
+        if dock.isExpectedToShow {
+            row(dock.isDisplayed,
+                L10n.tr("Dock 正显示在 Touch Bar 上", "The Dock is showing on the Touch Bar"),
+                L10n.tr("Dock 应该显示却没有出现 → 先试「关闭再开启显示」，仍不行请把下面的信息反馈给开发者", "The Dock should be showing but isn't → toggle “Show Dock” off and on; if it persists, send this report to the developer"))
+        } else {
+            lines.append(L10n.tr("· Dock 当前处于临时让位状态（截图 / Fn / 咖啡杯）或已关闭", "· The Dock is currently yielding (screenshot / Fn / coffee cup) or turned off"))
+        }
+        lines.append("")
+        lines.append("DockTouchBar \(AppInfo.version) (\(AppInfo.build)) · macOS \(ProcessInfo.processInfo.operatingSystemVersionString) · \(TouchBarSetup.hardwareModel)")
+        return (lines.joined(separator: "\n"), problems)
+    }
+
+    @objc private func showDiagnostics() {
+        runDisplayCheck()
+        let report = diagnosticReport()
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = report.problems == 0
+            ? L10n.tr("一切正常", "Everything looks fine")
+            : L10n.tr("发现 \(report.problems) 个问题", "Found \(report.problems) issue(s)")
+        alert.informativeText = report.text
+        if TouchBarSetup.modeHidesDock { alert.addButton(withTitle: L10n.tr("修复显示模式…", "Fix display mode…")) }
+        alert.addButton(withTitle: L10n.tr("复制诊断信息", "Copy report"))
+        alert.addButton(withTitle: L10n.tr("关闭", "Close"))
+        let response = alert.runModal()
+        let offset = TouchBarSetup.modeHidesDock ? 1 : 0
+        if offset == 1, response == .alertFirstButtonReturn {
+            fixTouchBarSetup()
+        } else if response == NSApplication.ModalResponse(rawValue: NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + offset) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(report.text, forType: .string)
+        }
     }
 
     // MARK: - Helpers
