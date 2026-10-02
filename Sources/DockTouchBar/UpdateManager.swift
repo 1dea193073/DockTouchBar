@@ -63,30 +63,52 @@ final class UpdateManager: NSObject, ObservableObject {
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self else { return }
+                // GitHub API 对未登录请求按 IP 限流（每小时 60 次），共用网络/VPN 时很容易被占满，
+                // 返回 403。任何 API 失败都改走不限流的网页重定向，避免用户看到“服务器响应异常”。
                 if let error {
-                    if !silent {
-                        self.state = .failed(L10n.tr("检查更新失败：\(error.localizedDescription)", "Check failed: \(error.localizedDescription)"))
-                    } else {
-                        self.state = .idle
-                    }
+                    self.fallbackCheck(silent: silent, failure: L10n.tr("检查更新失败：\(error.localizedDescription)", "Check failed: \(error.localizedDescription)"))
                     return
                 }
                 guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-                    self.state = silent ? .idle : .failed(L10n.tr("更新服务器响应异常", "Update server returned an error"))
+                    self.fallbackCheck(silent: silent, failure: L10n.tr("更新服务器响应异常", "Update server returned an error"))
                     return
                 }
-
                 guard let data,
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    if !silent {
-                        self.state = .failed(L10n.tr("解析更新信息失败", "Failed to parse update info"))
-                    } else {
-                        self.state = .idle
-                    }
+                    self.fallbackCheck(silent: silent, failure: L10n.tr("解析更新信息失败", "Failed to parse update info"))
                     return
                 }
 
                 self.parseReleaseResponse(json, silent: silent)
+            }
+        }.resume()
+    }
+
+    /// 备用检查：请求 github.com/…/releases/latest 网页，跟随重定向后从最终地址 `/releases/tag/<tag>` 取版本号，
+    /// 安装包地址按发布约定 `DockTouchBar-<版本>.dmg` 拼出。拿不到更新说明和文件大小，但不受 API 限流影响。
+    private func fallbackCheck(silent: Bool, failure: String) {
+        let page = AppInfo.repositoryURL.appendingPathComponent("releases/latest")
+        var request = URLRequest(url: page, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.httpMethod = "HEAD"
+        request.setValue("DockTouchBar/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard let final = response?.url, final.pathComponents.contains("tag"),
+                      let tag = final.pathComponents.last, !tag.isEmpty else {
+                    self.state = silent ? .idle : .failed(failure)
+                    return
+                }
+                let version = tag.trimmingCharacters(in: CharacterSet(charactersIn: "vV \t\n"))
+                let assetName = "\(AppInfo.name)-\(version).dmg"
+                let download = AppInfo.repositoryURL.appendingPathComponent("releases/download/\(tag)/\(assetName)")
+                self.parseReleaseResponse([
+                    "tag_name": tag,
+                    "name": "\(AppInfo.name) \(version)",
+                    "body": "",
+                    "html_url": final.absoluteString,
+                    "assets": [["name": assetName, "browser_download_url": download.absoluteString, "size": 0]],
+                ], silent: silent)
             }
         }.resume()
     }
