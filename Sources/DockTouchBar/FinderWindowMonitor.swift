@@ -13,6 +13,10 @@ import ApplicationServices
 /// “窗口关掉了”这个通知，辅助功能只在装在具体的窗口元素上才会发，装在 App 上不会发，
 /// 所以新窗口一出现（`kAXWindowCreatedNotification`）就要单独给它也装一份“它被销毁了”的订阅；
 /// 装观察者的时候已经开着的窗口，先手动订阅一遍。
+///
+/// 辅助功能的窗口列表只含当前桌面的窗口，别的桌面上的窗口订阅不到：装观察者时人在桌面 B、窗口在桌面 A，
+/// 之后回到 A 把它关掉，没有任何通知，状态点就会一直停在“运行中”（实测）。所以每次切换桌面都要补订阅
+/// 新桌面上的窗口（`spaceDidChange`），并顺手刷新一次——人只能在当前桌面上关窗口，补订阅之后就不会漏。
 final class FinderWindowMonitor {
     /// 窗口数量可能变了。在主线程。
     var onChange: (() -> Void)?
@@ -63,6 +67,26 @@ final class FinderWindowMonitor {
         watchedPID = nil
     }
 
+    /// 切换了桌面：补订阅这个桌面上的窗口，清掉已经失效的订阅记录，再通知刷新一次。
+    func spaceDidChange() {
+        guard observer != nil else { return }
+        // 切桌面动画期间辅助功能的窗口列表还是旧的，等动画结束再读。
+        pending?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.observer != nil else { return }
+            self.watchedWindows = self.watchedWindows.filter { Self.isAlive($0) }
+            self.watchExistingWindows()
+            self.onChange?()
+        }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    private static func isAlive(_ window: AXUIElement) -> Bool {
+        var role: CFTypeRef?
+        return AXUIElementCopyAttributeValue(window, kAXRoleAttribute as CFString, &role) != .invalidUIElement
+    }
+
     private func watchExistingWindows() {
         guard let app else { return }
         var value: CFTypeRef?
@@ -84,7 +108,7 @@ final class FinderWindowMonitor {
         } else {
             watchedWindows.remove(element)
         }
-        // 开窗口时辅助功能通知一到，`hasNormalWindows` 真正查的 CGWindowList 立刻就是对的；关窗口有个
+        // 开窗口时辅助功能通知一到，`hasOpenWindows` 真正查的 CGWindowList 立刻就是对的；关窗口有个
         // 关闭动画，实测 CGWindowList 要 0.2～0.5 秒才会跟上，太早查会读到刚关掉的那扇窗口还在——
         // 所以关窗口特意多等一会儿，两种情况都顺带把连续几下的抖动合并成一次。
         pending?.cancel()

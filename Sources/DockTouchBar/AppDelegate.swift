@@ -263,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let uses = [
             L10n.tr("用来：跨桌面切换到 App 的窗口", "Used to: jump to an app's window on another desktop"),
             L10n.tr("用来：窗口居中、最大化", "Used to: center and maximize a window"),
-            L10n.tr("用来：长按只关当前窗口、发现确认框", "Used to: close just the current window on long-press, and spot a confirmation dialog"),
+            L10n.tr("用来：长按关闭访达的窗口、发现确认框", "Used to: close Finder's windows on long-press, and spot a confirmation dialog"),
             L10n.tr("用来：双击最小化窗口、监听 Fn 避让", "Used to: minimize windows on double-tap and detect Fn for yielding"),
             L10n.tr("没有它：其他功能照常，只是这几项不可用", "Without it: everything else works, only these are unavailable"),
         ]

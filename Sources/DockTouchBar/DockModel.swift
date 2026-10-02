@@ -44,36 +44,49 @@ enum DockModel {
         var tiles: [DockTile] = []
         var claimed = Set<pid_t>()
 
-        // 访达进程杀不掉、永远“在运行”，状态点看进程存不存在没有意义：桌面上没开任何窗口时
-        // （比如刚点了一下桌面），让它和别的没运行的 App 一样不显示状态点，而不是一直挂着灰点。
+        // 访达进程杀不掉、永远“在运行”，看进程没有意义，和别的 App 对齐：有打开的窗口（任何桌面、最小化都算）才算启动，
+        // 图标亮；红点（前台）还要求访达在前台并且窗口真的显示在屏幕上——切到别的桌面、别的 App，
+        // 或者空桌面上访达接管前台但窗口在别的桌面，都是“启动着，但不在前台”。
         let finderApp = running.first { matches($0, bundleID: finderID, url: finderURL) }
-        let finderHasWindows = finderApp.map { AppSwitcher.hasNormalWindows(pid: $0.processIdentifier) } ?? false
+        let finderOpen = finderApp.map { AppSwitcher.hasOpenWindows(pid: $0.processIdentifier) } ?? false
+        let finderFront = finderOpen && finderApp.map {
+            $0.processIdentifier == frontPID && !$0.isHidden && AppSwitcher.hasVisibleWindows(pid: $0.processIdentifier)
+        } == true
         if let finderApp { claimed.insert(finderApp.processIdentifier) }
         tiles.append(DockTile(kind: .app, url: finderURL, bundleID: finderID,
-                              isRunning: finderHasWindows,
-                              isFrontmost: finderHasWindows && finderApp?.processIdentifier == frontPID))
+                              isRunning: finderOpen, isFrontmost: finderFront))
 
         if includePinned {
             for entry in pinned where entry.bundleID != finderID {
-                let app = running.first { matches($0, bundleID: entry.bundleID, url: entry.url) }
-                if let app { claimed.insert(app.processIdentifier) }
+                // 同一个 App 可能同时有多个 regular 进程（Chrome 会短暂冒出同 bundle 的额外进程），
+                // 全部认领；只认领第一个的话，其余会被当成“新启动的临时 App”冒到最左边。
+                let instances = running.filter { matches($0, bundleID: entry.bundleID, url: entry.url) }
+                instances.forEach { claimed.insert($0.processIdentifier) }
                 tiles.append(DockTile(kind: .app, url: entry.url, bundleID: entry.bundleID,
-                                      isRunning: app != nil,
-                                      isFrontmost: app != nil && app?.processIdentifier == frontPID))
+                                      isRunning: !instances.isEmpty,
+                                      isFrontmost: instances.contains { $0.processIdentifier == frontPID }))
             }
         }
 
         // 不按激活时间排：点击/切换已经打开的 App 不应让列表跳动。
-        let others = running.filter { !claimed.contains($0.processIdentifier) }.sorted {
-            let left = $0.launchDate ?? .distantPast
-            let right = $1.launchDate ?? .distantPast
-            if left != right { return left > right }
-            return ($0.bundleURL?.path ?? "") < ($1.bundleURL?.path ?? "")
+        // 同一个 App 的多个进程合并成一个图标，位置按最早启动的那个算，短命的额外进程不会让它跳到最左边。
+        var groups: [String: [NSRunningApplication]] = [:]
+        for app in running where !claimed.contains(app.processIdentifier) {
+            groups[app.bundleIdentifier ?? app.bundleURL?.path ?? "pid-\(app.processIdentifier)", default: []].append(app)
         }
-        let temporaryTiles = others.map { app in
-            DockTile(kind: .app, url: app.bundleURL, bundleID: app.bundleIdentifier,
-                     isRunning: true, isFrontmost: app.processIdentifier == frontPID,
-                     isTemporary: !pinned.contains { matches(app, bundleID: $0.bundleID, url: $0.url) })
+        let others = groups.values.compactMap { group -> (app: NSRunningApplication, front: Bool)? in
+            guard let first = group.min(by: { ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast) }) else { return nil }
+            return (first, group.contains { $0.processIdentifier == frontPID })
+        }.sorted {
+            let left = $0.app.launchDate ?? .distantPast
+            let right = $1.app.launchDate ?? .distantPast
+            if left != right { return left > right }
+            return ($0.app.bundleURL?.path ?? "") < ($1.app.bundleURL?.path ?? "")
+        }
+        let temporaryTiles = others.map { item in
+            DockTile(kind: .app, url: item.app.bundleURL, bundleID: item.app.bundleIdentifier,
+                     isRunning: true, isFrontmost: item.front,
+                     isTemporary: !pinned.contains { matches(item.app, bundleID: $0.bundleID, url: $0.url) })
         }
         if !temporaryTiles.isEmpty {
             tiles.insert(contentsOf: temporaryTiles + [.temporaryDivider], at: 0)
@@ -83,7 +96,9 @@ enum DockModel {
     }
 
     static func runningApp(bundleID: String?, url: URL) -> NSRunningApplication? {
-        NSWorkspace.shared.runningApplications.first { matches($0, bundleID: bundleID, url: url) }
+        // 有多个同 bundle 进程时，取最早启动的（长期运行的那个），不取短命的额外进程。
+        NSWorkspace.shared.runningApplications.filter { matches($0, bundleID: bundleID, url: url) }
+            .min { ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast) }
     }
 
     /// 访达现在的 PID，给 `FinderWindowMonitor` 盯着用。进程杀不掉，一般不会变，崩溃重启后会变。
@@ -94,7 +109,7 @@ enum DockModel {
     /// 长按退出前再确认一次“真的在运行”：访达窗口开关不触发任何通知，`tile.isRunning` 可能是缓存的旧值；
     /// 其它 App 只要进程还在（能走到这里说明已经查到了）就算数，不用再多查一次窗口。
     static func isActuallyRunning(_ app: NSRunningApplication) -> Bool {
-        app.bundleIdentifier == finderID ? AppSwitcher.hasNormalWindows(pid: app.processIdentifier) : true
+        app.bundleIdentifier == finderID ? AppSwitcher.hasOpenWindows(pid: app.processIdentifier) : true
     }
 
     private static func matches(_ app: NSRunningApplication, bundleID: String?, url: URL) -> Bool {

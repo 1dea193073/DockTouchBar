@@ -80,7 +80,7 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 |---|---|
 | **Tap** an icon | Switch to the app, or launch it. If its windows are on another desktop (Space), jump to that desktop |
 | **Double-tap** | Minimize the current window, like its yellow button. Needs Accessibility permission. Tap again to restore |
-| **Long-press** | Close the app, and always tell you what happened. A progress bar fills under the icon while you hold, and a "Closing …" countdown appears at the right edge over a pixel-art season (your pick in the menu); release early and it counts as a tap. If the app is in front with two or more windows it closes just the current window, otherwise it quits (same as ⌘Q). Finder can't be quit, so it is hidden (or its current window is closed when it is in front). If the app can't close because it is waiting for you (an "unsaved changes" sheet) or does not close, the Touch Bar switches to it, across desktops, and says so |
+| **Long-press** | Close the app, and always tell you what happened. A progress bar fills under the icon while you hold, and a "Closing …" countdown appears at the right edge over a pixel-art season (your pick in the menu); release early and it counts as a tap. The app is always quit entirely (same as ⌘Q), whatever its number of windows or whether they are minimized or hidden. Finder can't be quit, so all its windows are closed instead (minimized ones too; if they are on another desktop it jumps there first). If the app can't close because it is waiting for you (an "unsaved changes" sheet) or does not close, the Touch Bar switches to it, across desktops, and says so |
 | **Tap Trash** | Open the Trash in Finder |
 | **Swipe** | Scroll when the icons don't all fit; closing an app keeps the current area in view |
 | **Coffee cup** (right end, with animated steam) | Take a break: hide the Dock for a moment and hand the Touch Bar back to the system (brightness, volume). It returns on its own after 10–60 s |
@@ -94,7 +94,7 @@ Menu bar settings:
 
 - Show the center / maximize button, and the size of the centered window (60–100% of the screen height; width same as height, or 50–100% of the screen width)
 
-- Permissions — shows whether Accessibility is on, what it is used for (jumping to another desktop, center / maximize, closing just the current window, spotting a confirmation dialog, minimizing windows, and detecting Fn for yielding) and takes you to System Settings to turn it on; nothing else needs a permission
+- Permissions — shows whether Accessibility is on, what it is used for (jumping to another desktop, center / maximize, closing Finder's windows, spotting a confirmation dialog, minimizing windows, and detecting Fn for yielding) and takes you to System Settings to turn it on; nothing else needs a permission
 - Double-tap an icon: minimize the current window
 - Long-press an icon: close the app (Off / 1 s / 2 s / 3 s / 5 s)
 - Long-press style: Spring / Summer / Autumn / Winter (the Touch Bar plays a short preview when you pick one)
@@ -132,7 +132,7 @@ Things to know:
 
 ### Accessibility permission (optional)
 
-Accessibility enables cross-desktop window switching, double-tap minimization, center / maximize, closing the current window, detecting confirmation dialogs, and Fn yielding. Without it, basic launching and activation remain available; these features are limited.
+Accessibility enables cross-desktop window switching, double-tap minimization, center / maximize, closing Finder's windows, detecting confirmation dialogs, and Fn yielding. Without it, basic launching and activation remain available; these features are limited.
 
 1. Menu bar icon → **Permissions** → **Accessibility: off — click to turn it on…** (once granted it reads **on** with a tick)
 2. In System Settings → Privacy & Security → Accessibility, turn DockTouchBar on.

@@ -519,7 +519,7 @@ final class DockBarController: NSObject {
                 DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
                 (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressed()
                 switch plan {
-                case .closeWindow: quitHint.action = .closeWindow
+                case .closeWindow, .locateAndClose: quitHint.action = .closeWindow
                 case .hideApp: quitHint.action = .hide
                 default: quitHint.action = .quit
                 }
@@ -642,6 +642,7 @@ final class DockBarController: NSObject {
             $0.scheduleReload()
             $0.updateWindowWatching()
         }
+        observe(workspace, NSWorkspace.activeSpaceDidChangeNotification) { $0.finderWindowMonitor.spaceDidChange() }
         observe(workspace, NSWorkspace.didWakeNotification) { $0.recover(readdTray: false) }
         observe(workspace, NSWorkspace.screensDidWakeNotification) { $0.recover(readdTray: false) }
         observe(workspace, NSWorkspace.sessionDidBecomeActiveNotification) { $0.recover(readdTray: false) }

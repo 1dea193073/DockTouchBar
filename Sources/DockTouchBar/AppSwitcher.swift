@@ -245,10 +245,38 @@ enum AppSwitcher {
         AXIsProcessTrusted()
     }
 
-    /// 这个 App 有没有正常大小的窗口（不管在哪个桌面、是否最小化）。不需要辅助功能权限。
+    /// 这个 App 有没有打开的窗口：不管在哪个桌面、是否最小化、App 是否被隐藏。
     /// 给 `DockModel` 判断访达用：访达进程杀不掉、永远“在运行”，只有看它有没有窗口才知道是不是真的在用。
-    static func hasNormalWindows(pid: pid_t) -> Bool {
-        !normalWindows(of: pid, options: [.optionAll, .excludeDesktopElements]).isEmpty
+    ///
+    /// 窗口全关以后，访达（备忘录等也一样）会留一个屏幕外的占位窗口（实测 64×64，固定在 (0,400)，
+    /// 不属于任何桌面），`.optionAll` 会把它也列出来，所以只数个数不行。真实窗口都属于某个桌面；
+    /// 最小化的窗口也不属于桌面，要靠辅助功能确认（没有权限时数不到，最小化的访达窗口不算在内）。
+    static func hasOpenWindows(pid: pid_t) -> Bool {
+        let windows = normalWindows(of: pid, options: [.optionAll, .excludeDesktopElements])
+        guard !windows.isEmpty else { return false }
+        guard SkyLight.isAvailable else { return true }
+        if windows.contains(where: { !SkyLight.spaces(of: $0).isEmpty }) { return true }
+        return hasMinimizedWindow(pid: pid)
+    }
+
+    /// 这个 App 有没有窗口显示在屏幕上（别的桌面上的、最小化的、被隐藏的都不算）。
+    /// 用来区分“访达在前台，但窗口在别的桌面”（空桌面上访达会接管前台）和“窗口就摆在眼前”。
+    static func hasVisibleWindows(pid: pid_t) -> Bool {
+        !normalWindows(of: pid, options: [.optionOnScreenOnly, .excludeDesktopElements]).isEmpty
+    }
+
+    private static func hasMinimizedWindow(pid: pid_t) -> Bool {
+        guard AXIsProcessTrusted() else { return false }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
+              let list = value as? [AXUIElement] else { return false }
+        return list.contains {
+            var minimized: CFTypeRef?
+            return AXUIElementCopyAttributeValue($0, kAXMinimizedAttribute as CFString, &minimized) == .success
+                && (minimized as? Bool) == true
+        }
     }
 
     /// 弹出系统的“允许辅助功能”提示，并把本 App 加进 系统设置 → 隐私与安全性 → 辅助功能 的列表。

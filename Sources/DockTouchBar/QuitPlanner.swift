@@ -9,8 +9,10 @@ import ApplicationServices
 enum QuitPlan {
     /// 退出整个 App（等同 ⌘Q）。
     case quitApp
-    /// 只关最前面这个 App 的当前窗口（窗口不止一个，或者是访达）。
+    /// 关掉这个 App 的所有窗口（只用于访达：它退不了）。
     case closeWindow
+    /// 访达的窗口都在别的桌面（辅助功能够不着）：先切到窗口那边，再把它们全关掉。
+    case locateAndClose
     /// 隐藏整个 App（访达不在前面时，它退不了也没有窗口可关，只能藏起来）。
     case hideApp
     /// 什么也做不了，只说明情况。
@@ -29,6 +31,7 @@ enum QuitOutcome {
 
 enum QuitPlanner {
     private static let finderID = "com.apple.finder"
+    private static let finderURL = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
     /// 发出请求后，等多久还没变化就当作“没成功”。退出整个 App 和只关窗口都用这个：
     /// App 退出前的收尾（写偏好设置、关子进程……）、关窗口的动画，都可能比这更慢，尤其是机器卡的时候；
     /// 等太短会把“其实办成了，只是慢”误判成“没办成”——退出场景下这只是提示文字说错话，
@@ -37,21 +40,16 @@ enum QuitPlanner {
 
     // MARK: - 决定做什么
 
-    /// - 访达：在最前面而且有窗口 → 关当前窗口；有窗口但不在最前面，或没有辅助功能权限 → 隐藏；在最前面却没有窗口 → 说明情况。
-    /// - 其他 App：在最前面而且窗口不止一个 → 关当前窗口（要退出整个 App 用 ⌘Q，或者一个个关到只剩一个）；否则退出整个 App。
-    /// 只算当前桌面上的标准窗口（辅助功能看不到别的桌面上的窗口），没有辅助功能权限时数不了窗口，按退出处理。
+    /// - 访达：退不了，目标是让它“看起来关了”——把所有窗口（包括最小化的）都关掉；当前桌面上有就直接关，
+    ///   窗口都在别的桌面（辅助功能够不着）就先切过去再关；确实一个窗口都没有时说明情况。
+    /// - 其他 App：一律退出整个 App，不管它有几个窗口、是在前台、被隐藏还是最小化了。
     static func plan(for app: NSRunningApplication) -> QuitPlan {
-        let isFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
-        let count = standardWindows(of: app.processIdentifier)?.count
-        if app.bundleIdentifier == finderID {
-            guard isFront else { return .hideApp }
-            guard let count else { return .hideApp }
-            return count == 0
-                ? .notice(L10n.tr("访达没有窗口，也不能退出", "Finder has no window and can't be quit"))
-                : .closeWindow
+        guard app.bundleIdentifier == finderID else { return .quitApp }
+        if let count = closableWindows(of: app.processIdentifier)?.count, count > 0 { return .closeWindow }
+        if AppSwitcher.hasOpenWindows(pid: app.processIdentifier) {
+            return AXIsProcessTrusted() ? .locateAndClose : .hideApp
         }
-        if isFront, let count, count >= 2 { return .closeWindow }
-        return .quitApp
+        return .notice(L10n.tr("访达没有窗口，也不能退出", "Finder has no window and can't be quit"))
     }
 
     // MARK: - 执行，并核对结果
@@ -71,11 +69,23 @@ enum QuitPlanner {
                 completion(finished ? .done : (hasPendingDialog(pid) ? .needsAnswer : .stillOpen))
             }
         case .closeWindow:
-            let before = standardWindows(of: pid)?.count ?? 0
-            guard let closedWindow = closeFocusedWindow(of: pid) else { completion(.stillOpen); return }
-            wait(until: { app.isTerminated || !elementStillExists(closedWindow) || (standardWindows(of: pid)?.count ?? 0) < before }) { finished in
-                completion(finished ? .done : (hasPendingDialog(pid) ? .needsAnswer : .stillOpen))
+            closeAllWindows(of: app, completion: completion)
+        case .locateAndClose:
+            // 和点图标一样把访达切到前台（会切到它窗口所在的桌面），等辅助功能看得到窗口了再关。
+            AppSwitcher.switchTo(DockTile(kind: .app, url: finderURL, bundleID: finderID))
+            wait(until: { (closableWindows(of: pid)?.count ?? 0) > 0 }) { found in
+                if found { closeAllWindows(of: app, completion: completion) } else { completion(.stillOpen) }
             }
+        }
+    }
+
+    /// 关掉所有窗口（含最小化的），和逐个点红色关闭按钮一样，有未保存内容会弹确认。
+    private static func closeAllWindows(of app: NSRunningApplication, completion: @escaping (QuitOutcome) -> Void) {
+        let pid = app.processIdentifier
+        let closed = closableWindows(of: pid)?.compactMap(closeWindow) ?? []
+        guard !closed.isEmpty else { completion(.stillOpen); return }
+        wait(until: { app.isTerminated || closed.allSatisfy { !elementStillExists($0) } }) { finished in
+            completion(finished ? .done : (hasPendingDialog(pid) ? .needsAnswer : .stillOpen))
         }
     }
 
@@ -95,16 +105,16 @@ enum QuitPlanner {
     /// 退出请求后窗口立刻就没了，但后台还要花几十秒断开长连接、写本地缓存才真正退出进程，早就超出任何
     /// 合理的等待时间；对用户来说，窗口没了就是关掉了，不该因为它在后台收尾而被判定成“没关闭”。
     private static func isGoneFromSight(_ app: NSRunningApplication, pid: pid_t) -> Bool {
-        app.isTerminated || app.isHidden || (standardWindows(of: pid)?.count ?? 0) == 0
+        app.isTerminated || app.isHidden || (closableWindows(of: pid)?.count ?? 0) == 0
     }
 
     // MARK: - 辅助功能
 
-    /// 当前桌面上没最小化的标准窗口。没有权限或读不到时是 nil。
-    private static func standardWindows(of pid: pid_t) -> [AXUIElement]? {
-        allWindows(of: pid)?.filter {
-            string($0, kAXSubroleAttribute) == kAXStandardWindowSubrole && bool($0, kAXMinimizedAttribute) != true
-        }
+    /// 辅助功能能看到的窗口，最小化的、App 被隐藏时的也算（当前桌面之外的看不到）。没有权限或读不到时是 nil。
+    /// 按角色（AXWindow）而不是子角色筛：访达点图标新开的窗口实测子角色是 AXDialog 而不是标准窗口，
+    /// 只认标准窗口就会误判成“没有窗口可关”；访达的桌面元素角色是 AXScrollArea，不会混进来。
+    private static func closableWindows(of pid: pid_t) -> [AXUIElement]? {
+        allWindows(of: pid)?.filter { string($0, kAXRoleAttribute) == kAXWindowRole }
     }
 
     private static func allWindows(of pid: pid_t) -> [AXUIElement]? {
@@ -129,24 +139,13 @@ enum QuitPlanner {
         return false
     }
 
-    /// 按下当前窗口的红色关闭按钮（和用手点一样，有未保存内容会弹出确认）。成功时把这个窗口的辅助功能元素
-    /// 带回去，用来之后核对它是不是真的没了（`elementStillExists`），比只看窗口数量变化更准。
-    private static func closeFocusedWindow(of pid: pid_t) -> AXUIElement? {
-        let element = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(element, 0.25)
-        var window: CFTypeRef?
-        for name in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
-            if AXUIElementCopyAttributeValue(element, name as CFString, &window) == .success,
-               let w = window, CFGetTypeID(w) == AXUIElementGetTypeID() { break }
-            window = nil
-        }
-        guard let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
-        let windowElement = window as! AXUIElement
+    /// 按下这个窗口的红色关闭按钮。成功时原样返回窗口元素，用来之后核对它是不是真的没了（`elementStillExists`）。
+    private static func closeWindow(_ window: AXUIElement) -> AXUIElement? {
         var button: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(windowElement, kAXCloseButtonAttribute as CFString, &button) == .success,
+        guard AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &button) == .success,
               let b = button, CFGetTypeID(b) == AXUIElementGetTypeID() else { return nil }
         guard AXUIElementPerformAction(b as! AXUIElement, kAXPressAction as CFString) == .success else { return nil }
-        return windowElement
+        return window
     }
 
     /// 这个窗口元素是不是还在：关掉的窗口再去读它的属性，系统会报“元素无效”。
