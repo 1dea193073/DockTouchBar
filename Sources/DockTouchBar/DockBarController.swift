@@ -35,6 +35,7 @@ final class DockBarController: NSObject {
 
     private let scrubber: NSScrubber
     private let scrubberWidth: NSLayoutConstraint
+    private let scrubberLeading: NSLayoutConstraint
     private let flowLayout = NSScrubberFlowLayout()
     private let pressRecognizer = NSPressGestureRecognizer()
     /// 装着 Dock 和右侧“正在关闭”提示的容器；宽度固定为整条 Touch Bar，Dock 靠左，提示靠右边缘。
@@ -136,6 +137,11 @@ final class DockBarController: NSObject {
         }
     }
 
+    /// 图标不多、没占满图标区时是否居中显示；占满（要滑动）时本来就靠左，这个选项不起作用。
+    var centersIcons = true {
+        didSet { if oldValue != centersIcons { updateDockWidth() } }
+    }
+
     /// 长按多少秒退出 App；0 表示不启用。
     var longPressDuration: TimeInterval = 3 {
         didSet { pressRecognizer.isEnabled = longPressDuration > 0 }
@@ -185,6 +191,7 @@ final class DockBarController: NSObject {
         let scrubber = NSScrubber()
         self.scrubber = scrubber
         self.scrubberWidth = scrubber.widthAnchor.constraint(equalToConstant: 0)
+        self.scrubberLeading = scrubber.leadingAnchor.constraint(equalTo: container.leadingAnchor)
         self.quitHintLeading = quitHint.leadingAnchor.constraint(equalTo: container.leadingAnchor)
         // 和图标格间距一个道理：留个小缝，手指按在两个按钮交界处不会跟旁边那个撞在一起。
         self.coffeeToCenter = coffeeButton.trailingAnchor.constraint(equalTo: centerButton.leadingAnchor, constant: -2)
@@ -223,7 +230,7 @@ final class DockBarController: NSObject {
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(equalToConstant: Metrics.maxDockWidth),
             container.heightAnchor.constraint(equalToConstant: 30),
-            scrubber.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrubberLeading,
             scrubber.topAnchor.constraint(equalTo: container.topAnchor),
             scrubber.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             centerButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -440,11 +447,6 @@ final class DockBarController: NSObject {
         let tile = tiles[index]
         guard tile.kind != .divider else { return }
         (scrubber.itemViewForItem(at: index) as? DockTileView)?.flash()
-        if tile.kind == .trash {
-            lastTap = nil
-            if let url = tile.url { NSWorkspace.shared.open(url) }
-            return
-        }
         let now = Date()
         if doubleTapMinimizes, let last = lastTap, last.tile.isSameSlot(as: tile),
            now.timeIntervalSince(last.time) < Metrics.doubleTapInterval {
@@ -456,7 +458,12 @@ final class DockBarController: NSObject {
             }
         } else {
             lastTap = (tile, now)
-            AppSwitcher.switchTo(tile)
+            if tile.kind == .trash {
+                // 垃圾桶：打开访达里的废纸篓窗口；窗口已经开着就提到前面。
+                if let url = tile.url { NSWorkspace.shared.open(url) }
+            } else {
+                AppSwitcher.switchTo(tile)
+            }
         }
     }
 
@@ -526,6 +533,17 @@ final class DockBarController: NSObject {
                 showQuitHint(forItemAt: index, appName: name, duration: remaining)
             }
         }
+        // 垃圾桶：废纸篓窗口开着时，长按关掉它（只关这一个窗口，不动访达的其他窗口）。
+        if longPressDuration > 0, tile.kind == .trash, TrashWindow.isOpen {
+            newPress.plan = .closeTrash
+            let remaining = max(longPressDuration - Metrics.pressArmDelay, 0.1)
+            let work = DispatchWorkItem { [weak self] in self?.completePress() }
+            newPress.quitWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
+            (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressed()
+            quitHint.action = .closeWindow
+            showQuitHint(forItemAt: index, appName: L10n.tr("垃圾桶", "Trash"), duration: remaining)
+        }
         press = newPress
     }
 
@@ -569,12 +587,13 @@ final class DockBarController: NSObject {
         press = current
         swallowTapsUntilRelease = true
         (scrubber.itemViewForItem(at: current.index) as? DockTileView)?.hidePressed()
+        let isTrash = current.tile.kind == .trash
         guard let url = current.tile.url,
-              let app = DockModel.runningApp(bundleID: current.tile.bundleID, url: url) else {
+              let app = isTrash ? TrashWindow.finderApp : DockModel.runningApp(bundleID: current.tile.bundleID, url: url) else {
             quitHint.hide(completed: true)
             return
         }
-        let name = app.localizedName ?? url.deletingPathExtension().lastPathComponent
+        let name = isTrash ? L10n.tr("垃圾桶", "Trash") : app.localizedName ?? url.deletingPathExtension().lastPathComponent
         let tile = current.tile
         // 动作发出去以后，看结果再决定怎么收尾：成功了放结尾动画；App 在等你确认时切到它那边，让你亲眼看到、能去回答；
         // 单纯没等到变化（可能已经关了，只是比耐心等的时间慢，也可能是真的没响应）就只说明情况，不切过去——
@@ -587,7 +606,7 @@ final class DockBarController: NSObject {
             case .done:
                 self.quitHint.hide(completed: true)
             case .needsAnswer:
-                AppSwitcher.switchTo(tile)
+                if !isTrash { AppSwitcher.switchTo(tile) }
                 self.quitHint.showResultNotice(L10n.tr("\(name) 在等你确认，已切换过去", "\(name) needs your answer — switched to it"))
             case .stillOpen:
                 self.quitHint.showResultNotice(L10n.tr("\(name) 还没有关闭", "\(name) hasn't closed"))
@@ -763,7 +782,37 @@ final class DockBarController: NSObject {
             for (index, tile) in tiles.enumerated() {
                 (scrubber.itemViewForItem(at: index) as? DockTileView)?.configure(with: tile, iconSize: Metrics.iconSize)
             }
+            removeStrayItemViews()
         }
+    }
+
+    /// NSScrubber 批量增删/移动之后，位置没变的图标（分隔线、垃圾桶）有时会把旧位置上的视图留在原地，
+    /// 画面上就是“重影”，要等下一次整体刷新才消失。不属于任何当前位置的图标视图，一律清掉。
+    private func removeStrayItemViews() {
+        // 归属没错、位置还停在旧列表里的视图（批量移动后偶发）：让布局重算一遍。
+        func misplaced() -> Bool {
+            tiles.indices.contains { index in
+                guard let view = scrubber.itemViewForItem(at: index),
+                      let frame = scrubber.scrubberLayout.layoutAttributesForItem(at: index)?.frame else { return false }
+                return abs(view.frame.minX - frame.minX) > 1
+            }
+        }
+        if misplaced() {
+            scrubber.scrubberLayout.invalidateLayout()
+            scrubber.layoutSubtreeIfNeeded()
+            if misplaced() { scrubber.reloadData() }
+        }
+        let owned = tiles.indices.compactMap { scrubber.itemViewForItem(at: $0) }
+        func sweep(_ view: NSView) {
+            for sub in view.subviews {
+                if sub is DockTileView {
+                    if !sub.isHidden, !owned.contains(where: { $0 === sub }) { sub.removeFromSuperview() }
+                } else {
+                    sweep(sub)
+                }
+            }
+        }
+        sweep(scrubber)
     }
 
     private func recomputeContentWidth() {
@@ -777,7 +826,10 @@ final class DockBarController: NSObject {
     }
 
     private func updateDockWidth() {
-        scrubberWidth.constant = min(contentWidth, Metrics.maxDockWidth - buttonsWidth)
+        let available = Metrics.maxDockWidth - buttonsWidth
+        scrubberWidth.constant = min(contentWidth, available)
+        // 只有放得下才居中；放不下就是满宽、从最左开始滑动。
+        scrubberLeading.constant = centersIcons && contentWidth < available ? ((available - contentWidth) / 2).rounded() : 0
     }
 
     private static func width(of tile: DockTile) -> CGFloat {
@@ -894,8 +946,8 @@ final class DockTileView: NSScrubberItemView {
         iconLayer.contents = tile.url.flatMap { IconCache.image(for: $0, pointSize: iconSize) }
         iconContentRect = tile.url.flatMap { IconCache.contentRect(for: $0, pointSize: iconSize) }
         iconLayer.isHidden = tile.kind == .divider
-        // 没运行的 App（固定在栏里但还没启动）图标暗一些，一眼能和运行中的分开，但不用暗到看不清图标本身。
-        baseOpacity = tile.kind == .trash || tile.isRunning ? 1 : 0.6
+        // 没运行的 App（固定在栏里但还没启动）、没开着窗口的垃圾桶，图标暗一些，一眼能和运行中的分开，但不用暗到看不清图标本身。
+        baseOpacity = tile.isRunning ? 1 : 0.6
         iconLayer.opacity = baseOpacity
         // 仅当前激活（前台）的应用显示右上角小红点；未运行应用已通过透明度区分，后台运行应用不需要灰色圆圈。
         badgeLayer.isHidden = tile.kind != .app || !tile.isFrontmost

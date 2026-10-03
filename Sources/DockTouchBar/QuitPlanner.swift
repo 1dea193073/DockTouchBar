@@ -15,6 +15,8 @@ enum QuitPlan {
     case locateAndClose
     /// 隐藏整个 App（访达不在前面时，它退不了也没有窗口可关，只能藏起来）。
     case hideApp
+    /// 关掉访达里的废纸篓窗口（垃圾桶图标的长按）。
+    case closeTrash
     /// 什么也做不了，只说明情况。
     case notice(String)
 }
@@ -70,6 +72,8 @@ enum QuitPlanner {
             }
         case .closeWindow:
             closeAllWindows(of: app, completion: completion)
+        case .closeTrash:
+            closeAllWindows(of: app, windows: TrashWindow.windows(), completion: completion)
         case .locateAndClose:
             // 和点图标一样把访达切到前台（会切到它窗口所在的桌面），等辅助功能看得到窗口了再关。
             AppSwitcher.switchTo(DockTile(kind: .app, url: finderURL, bundleID: finderID))
@@ -80,9 +84,10 @@ enum QuitPlanner {
     }
 
     /// 关掉所有窗口（含最小化的），和逐个点红色关闭按钮一样，有未保存内容会弹确认。
-    private static func closeAllWindows(of app: NSRunningApplication, completion: @escaping (QuitOutcome) -> Void) {
+    private static func closeAllWindows(of app: NSRunningApplication, windows: [AXUIElement]? = nil,
+                                        completion: @escaping (QuitOutcome) -> Void) {
         let pid = app.processIdentifier
-        let closed = closableWindows(of: pid)?.compactMap(closeWindow) ?? []
+        let closed = (windows ?? closableWindows(of: pid))?.compactMap(closeWindow) ?? []
         guard !closed.isEmpty else { completion(.stillOpen); return }
         wait(until: { app.isTerminated || closed.allSatisfy { !elementStillExists($0) } }) { finished in
             completion(finished ? .done : (hasPendingDialog(pid) ? .needsAnswer : .stillOpen))

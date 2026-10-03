@@ -53,8 +53,9 @@ enum DockModel {
             $0.processIdentifier == frontPID && !$0.isHidden && AppSwitcher.hasVisibleWindows(pid: $0.processIdentifier)
         } == true
         if let finderApp { claimed.insert(finderApp.processIdentifier) }
-        tiles.append(DockTile(kind: .app, url: finderURL, bundleID: finderID,
-                              isRunning: finderOpen, isFrontmost: finderFront))
+        let finderTile = DockTile(kind: .app, url: finderURL, bundleID: finderID,
+                                  isRunning: finderOpen, isFrontmost: finderFront)
+        if includePinned || finderOpen { tiles.append(finderTile) }
 
         if includePinned {
             for entry in pinned where entry.bundleID != finderID {
@@ -88,10 +89,25 @@ enum DockModel {
                      isRunning: true, isFrontmost: item.front,
                      isTemporary: !pinned.contains { matches(item.app, bundleID: $0.bundleID, url: $0.url) })
         }
-        if !temporaryTiles.isEmpty {
-            tiles.insert(contentsOf: temporaryTiles + [.temporaryDivider], at: 0)
+        return arrange(base: tiles, others: temporaryTiles, includePinned: includePinned, trashOpen: TrashWindow.isOpenOrUnknown)
+    }
+
+    /// 排列：固定模式下，临时 App（最近启动的在最左）→ 访达和固定 App → 垃圾桶；
+    /// “只显示正在运行的 App”模式下，访达（有窗口才有）排最左，后面是正在运行的 App → 垃圾桶（开着窗口才有）。
+    /// 单独拿出来是为了能脱离系统状态做测试（tools/verify-dock-layout）。
+    static func arrange(base: [DockTile], others: [DockTile], includePinned: Bool, trashOpen: Bool = false) -> [DockTile] {
+        var tiles = base
+        if includePinned {
+            if !others.isEmpty { tiles.insert(contentsOf: others + [.temporaryDivider], at: 0) }
+        } else {
+            tiles.append(contentsOf: others)
         }
-        tiles.append(contentsOf: [.divider, .trash])
+        // “只显示正在运行的 App”：变灰（没在运行）的图标一律不显示，垃圾桶没开着窗口也一样，连前面的分隔线一起去掉。
+        if includePinned || trashOpen {
+            var trash = DockTile.trash
+            trash.isRunning = trashOpen
+            tiles.append(contentsOf: [.divider, trash])
+        }
         return tiles
     }
 

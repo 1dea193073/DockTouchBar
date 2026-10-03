@@ -18,9 +18,16 @@ func tile(_ number: Int, temporary: Bool = false) -> DockTile {
 
 for includePinned in [true, false] {
     let model = DockModel.tiles(includePinned: includePinned)
-    check(model.filter { $0.kind == .trash }.count == 1 && model.last?.kind == .trash,
-          "Trash appears exactly once at the end (pinned=\(includePinned))")
-    check(model.filter { $0.bundleID == "com.apple.finder" }.count == 1, "Finder appears exactly once")
+    // 固定模式下垃圾桶始终在；只显示运行中的 App 时，只有废纸篓窗口开着才在。
+    let trashes = model.filter { $0.kind == .trash }
+    check(includePinned ? (trashes.count == 1 && model.last?.kind == .trash)
+                        : (trashes.isEmpty ? !model.contains { $0.kind == .divider } : model.last?.kind == .trash),
+          "Trash at the end (pinned) / only while its window is open (running-only)")
+    if !includePinned { check(model.allSatisfy { $0.isRunning || $0.kind == .divider }, "Running-only: no dimmed icons") }
+    // 固定模式下访达始终在；只显示运行中的 App 时，访达只在有窗口时出现，并排在最左。
+    let finders = model.filter { $0.bundleID == "com.apple.finder" }
+    check(includePinned ? finders.count == 1 : (finders.count <= 1 && (finders.isEmpty || model.first?.bundleID == "com.apple.finder")),
+          "Finder appears once (pinned) / only when it has windows, at the far left (running-only)")
     let apps = model.filter { $0.kind == .app }
     check(Set(apps.compactMap(\.url)).count == apps.count, "No duplicate app icons")
     let launches = apps.prefix { $0.bundleID != "com.apple.finder" }.compactMap { tile -> Date? in

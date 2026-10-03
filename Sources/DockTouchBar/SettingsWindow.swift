@@ -1,16 +1,19 @@
 import AppKit
 import SwiftUI
+import ServiceManagement
 
-/// “关于”窗口，两页：关于（介绍、作者链接、求 Star）和使用说明。窗口高度按内容自动适应，取两页里较高的那页。
+/// 设置窗口，三页：设置（所有选项）、使用说明、关于（介绍、更新、作者链接）。
 /// 每次打开都重新创建内容，这样切换语言后再打开就是新语言。
-final class AboutWindowController {
+final class SettingsWindowController {
     private var window: NSWindow?
+    /// 诊断按钮要做的事，由 AppDelegate 提供。
+    var onDiagnose: () -> Void = {}
 
-    func show(checkUpdates: Bool = false) {
+    func show(page: SettingsPage = .settings, checkUpdates: Bool = false) {
         let window = self.window ?? makeWindow()
         self.window = window
-        window.title = L10n.tr("关于 \(AppInfo.name)", "About \(AppInfo.name)")
-        window.contentViewController = NSHostingController(rootView: AboutView())
+        window.title = L10n.tr("\(AppInfo.name) 设置", "\(AppInfo.name) Settings")
+        window.contentViewController = NSHostingController(rootView: SettingsView(initialPage: page, onDiagnose: onDiagnose))
         window.center()
         if #available(macOS 14, *) {
             NSApp.activate()
@@ -24,15 +27,19 @@ final class AboutWindowController {
     }
 
     private func makeWindow() -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 680),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 700),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         return window
     }
 }
 
-private struct AboutView: View {
-    private enum Page { case about, usage }
+enum SettingsPage { case settings, usage, about }
+
+private struct SettingsView: View {
+    typealias Page = SettingsPage
+    let initialPage: SettingsPage
+    let onDiagnose: () -> Void
 
     /// 使用说明里的一项：左边是图标（系统符号或者像素画），右边是标题和说明。
     private struct Usage: Identifiable {
@@ -46,7 +53,9 @@ private struct AboutView: View {
         let detail: String
     }
 
-    @State private var page = Page.about
+    @State private var page = Page.settings
+    /// 读取语言键，改了语言后整个窗口立刻重绘。
+    @AppStorage(SettingsKey.language) private var language = AppLanguage.system.rawValue
     @ObservedObject private var updater = UpdateManager.shared
 
     private var gestures: [Usage] {
@@ -58,8 +67,8 @@ private struct AboutView: View {
                   detail: L10n.tr("最小化当前窗口，等同左上角黄色按钮。需要辅助功能权限；再点图标可恢复。",
                                   "Minimize the current window, like its yellow button. Needs Accessibility permission; tap the icon again to restore it.")),
             Usage(icon: .symbol("power"), title: L10n.tr("长按", "Long-press"),
-                  detail: L10n.tr("退出这个 App（等同 ⌘Q）。按住时右边缘出现像素画的倒计时，小角色沿进度条跑到头就退出；中途松手算单击。时长和提示的季节风格（春夏秋冬）可在菜单里设置。",
-                                  "Quit the app (same as ⌘Q). A pixel-art countdown appears at the edge and a tiny character runs along the progress bar; when it gets to the end, the app quits. Release early to treat it as a tap. The duration and the season (spring, summer, autumn, winter) are set in the menu.")),
+                  detail: L10n.tr("退出这个 App（等同 ⌘Q）。按住时右边缘出现像素画的倒计时，小角色沿进度条跑到头就退出；中途松手算单击。时长和提示的季节风格（春夏秋冬）可在设置里调整。",
+                                  "Quit the app (same as ⌘Q). A pixel-art countdown appears at the edge and a tiny character runs along the progress bar; when it gets to the end, the app quits. Release early to treat it as a tap. The duration and the season (spring, summer, autumn, winter) are set in Settings.")),
             Usage(icon: .symbol("arrow.left.and.right"), title: L10n.tr("左右滑动", "Swipe"),
                   detail: L10n.tr("图标放不下时滚动。", "Scroll when the icons don't all fit.")),
         ]
@@ -68,8 +77,8 @@ private struct AboutView: View {
     private var buttons: [Usage] {
         [
             Usage(icon: .pixels([PixelIcon.coffee.first], scale: 1.5), title: L10n.tr("咖啡杯", "Coffee cup"),
-                  detail: L10n.tr("歇一会儿：Dock 暂时隐藏、系统控制条（亮度、音量）回来，稍后自动恢复，时长在菜单里设置。也可以在菜单里取消勾选“在 Touch Bar 上显示 Dock”。",
-                                  "Take a break: the Dock hides for a moment and the system controls (brightness, volume) come back, then it returns on its own (set the time in the menu). Or untick “Show Dock on Touch Bar” in the menu.")),
+                  detail: L10n.tr("歇一会儿：Dock 暂时隐藏、系统控制条（亮度、音量）回来，稍后自动恢复，时长在设置里调整。也可以在菜单栏菜单里取消勾选“在 Touch Bar 上显示 Dock”。",
+                                  "Take a break: the Dock hides for a moment and the system controls (brightness, volume) come back, then it returns on its own (set the time in Settings). Or untick “Show Dock on Touch Bar” in the menu bar menu.")),
             Usage(icon: .pixels([PixelIcon.center, PixelIcon.maximize], scale: 1), title: L10n.tr("窗口居中 / 最大化", "Center / maximize"),
                   detail: L10n.tr("把最前面 App 的窗口居中；已经居中时再点一下最大化（铺满可用区域，不是原生全屏），再点回到居中。你自己拖过或换了 App，就先居中。需要辅助功能权限。",
                                   "Center the frontmost app's window. When it is already centered, the next tap maximizes it (fills the usable area, not native full screen), and the next one centers it again. If you moved the window or switched apps, it centers first. Needs Accessibility permission.")),
@@ -79,25 +88,23 @@ private struct AboutView: View {
     var body: some View {
         VStack(spacing: 0) {
             Picker("", selection: $page) {
-                Text(L10n.tr("关于", "About")).tag(Page.about)
+                Text(L10n.tr("设置", "Settings")).tag(Page.settings)
                 Text(L10n.tr("使用说明", "How to use")).tag(Page.usage)
+                Text(L10n.tr("关于", "About")).tag(Page.about)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 240)
-            .padding(.top, 14)
+            .frame(width: 300)
+            .padding(.vertical, 14)
 
-            // 两页叠在一起，窗口高度取较高的那一页，切换时窗口大小不变；看不见的那页不响应点击。
-            ZStack {
-                aboutPage
-                    .opacity(page == .about ? 1 : 0)
-                    .allowsHitTesting(page == .about)
-                usagePage
-                    .opacity(page == .usage ? 1 : 0)
-                    .allowsHitTesting(page == .usage)
+            switch page {
+            case .settings: SettingsForm(onDiagnose: onDiagnose)
+            case .usage: usagePage
+            case .about: aboutPage
             }
         }
-        .frame(width: 460)
+        .frame(width: 500, height: 700)
+        .onAppear { page = initialPage }
     }
 
     // MARK: - 关于
@@ -326,17 +333,19 @@ private struct AboutView: View {
     // MARK: - 使用说明
 
     private var usagePage: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 14) {
             section(L10n.tr("在图标上", "On the icons"), gestures)
             section(L10n.tr("右侧的按钮", "The buttons on the right"), buttons)
-            Text(L10n.tr("需要的权限只有“辅助功能”，在菜单栏的“权限”里能看到状态、点一下去开启。开关开着但菜单里仍显示“未开启”：在 系统设置 → 隐私与安全性 → 辅助功能 里删掉 DockTouchBar，再重新添加并打开。",
-                         "The only permission needed is Accessibility; its status is shown under “Permissions” in the menu, and one click takes you to turn it on. If it's switched on but the menu still says it's off: remove DockTouchBar in System Settings → Privacy & Security → Accessibility, then add it again and turn it on."))
+            Text(L10n.tr("需要的权限只有“辅助功能”，在“设置”页的“权限”里能看到状态、点一下去开启。开关开着但设置里仍显示“未开启”：在 系统设置 → 隐私与安全性 → 辅助功能 里删掉 DockTouchBar，再重新添加并打开。",
+                         "The only permission needed is Accessibility; its status is shown under “Permissions” on the Settings page, and one click takes you to turn it on. If it's switched on but Settings still says it's off: remove DockTouchBar in System Settings → Privacy & Security → Accessibility, then add it again and turn it on."))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 24)
-        .padding(.vertical, 20)
+        .padding(.bottom, 20)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
     }
 
     private func section(_ title: String, _ items: [Usage]) -> some View {
@@ -377,5 +386,135 @@ private struct AboutView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - 设置页
+
+private struct SettingsForm: View {
+    let onDiagnose: () -> Void
+
+    @AppStorage(SettingsKey.enabled) private var enabled = true
+    @AppStorage(SettingsKey.showPinned) private var showPinned = true
+    @AppStorage(SettingsKey.centerIcons) private var centerIcons = true
+    @AppStorage(SettingsKey.iconSpacing) private var spacing = 4
+    @AppStorage(SettingsKey.showCenterButton) private var showCenterButton = true
+    @AppStorage(SettingsKey.centerHeight) private var centerHeight = 80
+    @AppStorage(SettingsKey.centerWidth) private var centerWidth = 0
+    @AppStorage(SettingsKey.hideSeconds) private var hideSeconds = 20
+    @AppStorage(SettingsKey.doubleTapMinimize) private var doubleTap = true
+    @AppStorage(SettingsKey.longPressSeconds) private var longPress = 3
+    @AppStorage(QuitHintTheme.defaultsKey) private var theme = QuitHintTheme.spring.rawValue
+    @AppStorage(SettingsKey.yieldCapture) private var yieldCapture = true
+    @AppStorage(SettingsKey.yieldFunctionRow) private var yieldFn = true
+    @AppStorage(SettingsKey.language) private var language = AppLanguage.system.rawValue
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var hasAccess = AppSwitcher.hasAccessibilityAccess
+
+    var body: some View {
+        Form {
+            Section(L10n.tr("显示", "Display")) {
+                Toggle(L10n.tr("在 Touch Bar 上显示 Dock", "Show Dock on Touch Bar"), isOn: $enabled)
+                    .disabled(!TouchBarBridge.isAvailable)
+                Toggle(L10n.tr("只显示正在运行的 App", "Only show running apps"),
+                       isOn: Binding(get: { !showPinned }, set: { showPinned = !$0 }))
+                Toggle(L10n.tr("图标居中显示", "Center the icons"), isOn: $centerIcons)
+                Picker(L10n.tr("图标间距", "Icon spacing"), selection: $spacing) {
+                    ForEach(SettingsOptions.spacing, id: \.self) { Text("\($0)pt").tag($0) }
+                }
+                Picker(L10n.tr("点咖啡杯后临时隐藏", "Hide after tapping the coffee cup"), selection: $hideSeconds) {
+                    ForEach(SettingsOptions.hide, id: \.self) { Text(L10n.tr("\($0) 秒", "\($0) s")).tag($0) }
+                }
+            }
+
+            Section(L10n.tr("窗口居中 / 最大化", "Center / maximize")) {
+                Toggle(L10n.tr("显示“窗口居中 / 最大化”按钮", "Show the center / maximize button"), isOn: $showCenterButton)
+                Picker(L10n.tr("居中窗口的高度", "Centered window height"), selection: $centerHeight) {
+                    ForEach(SettingsOptions.height, id: \.self) {
+                        Text(L10n.tr("屏幕高度的 \($0)%", "\($0)% of screen height")).tag($0)
+                    }
+                }
+                Picker(L10n.tr("居中窗口的宽度", "Centered window width"), selection: $centerWidth) {
+                    ForEach(SettingsOptions.width, id: \.self) {
+                        Text($0 == 0 ? L10n.tr("与高度相同（正方形）", "Same as height (square)")
+                                     : L10n.tr("屏幕宽度的 \($0)%", "\($0)% of screen width")).tag($0)
+                    }
+                }
+            }
+
+            Section(L10n.tr("手势", "Gestures")) {
+                Toggle(L10n.tr("双击图标：最小化当前窗口", "Double-tap an icon: minimize the window"), isOn: $doubleTap)
+                Picker(L10n.tr("长按图标：退出 App", "Long-press an icon: quit the app"), selection: $longPress) {
+                    ForEach(SettingsOptions.longPress, id: \.self) {
+                        Text($0 == 0 ? L10n.tr("不启用", "Off") : L10n.tr("按住 \($0) 秒", "Hold \($0) s")).tag($0)
+                    }
+                }
+                Picker(L10n.tr("长按提示风格", "Long-press style"), selection: $theme) {
+                    ForEach(QuitHintTheme.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+                }
+            }
+
+            Section(L10n.tr("系统 Touch Bar 避让", "Yield to system Touch Bar controls")) {
+                Toggle(L10n.tr("截图 / 录屏时自动避让", "Yield during screenshots / recording"), isOn: $yieldCapture)
+                Toggle(L10n.tr("按住 Fn 时自动避让", "Yield while Fn is held"), isOn: $yieldFn)
+                Text(L10n.tr("开启时 Dock 临时隐藏，结束后自动恢复", "When on, the Dock hides temporarily and returns afterward"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section(L10n.tr("通用", "General")) {
+                Picker(L10n.tr("语言", "Language"), selection: $language) {
+                    Text(L10n.tr("跟随系统", "Follow System")).tag(AppLanguage.system.rawValue)
+                    Text("简体中文").tag(AppLanguage.chinese.rawValue)
+                    Text("English").tag(AppLanguage.english.rawValue)
+                }
+                Toggle(L10n.tr("登录时自动启动", "Launch at login"), isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { setLaunchAtLogin($0) }))
+            }
+
+            Section(L10n.tr("权限", "Permissions")) {
+                HStack {
+                    Image(systemName: hasAccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(hasAccess ? Color.green : Color.orange)
+                    Text(hasAccess ? L10n.tr("辅助功能：已开启", "Accessibility: on")
+                                   : L10n.tr("辅助功能：未开启", "Accessibility: off"))
+                    Spacer()
+                    Button(hasAccess ? L10n.tr("打开系统设置", "Open System Settings")
+                                     : L10n.tr("去开启…", "Turn on…")) {
+                        AppSwitcher.requestAccessibilityAccess()
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+                Text(L10n.tr("用来：跨桌面切换窗口、窗口居中和最大化、长按关闭访达窗口、双击最小化、监听 Fn 避让。没有它其他功能照常，只是这几项不可用。除此之外不需要其他任何权限。",
+                             "Used to: switch to windows on other desktops, center and maximize windows, close Finder's windows on long-press, minimize on double-tap, and detect Fn for yielding. Without it everything else works. No other permission is needed."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section(L10n.tr("问题排查", "Troubleshooting")) {
+                Button(L10n.tr("诊断：为什么看不到 Dock？…", "Diagnose: why can't I see the Dock?…"), action: onDiagnose)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear {
+            hasAccess = AppSwitcher.hasAccessibilityAccess
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+
+    private func setLaunchAtLogin(_ on: Bool) {
+        let service = SMAppService.mainApp
+        do {
+            if on { try service.register() } else { try service.unregister() }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = L10n.tr("无法修改登录项", "Couldn't change the login item")
+            alert.informativeText = "\(error.localizedDescription)\n\n"
+                + L10n.tr("先把 App 放进「应用程序」文件夹再试。", "Move the app to the Applications folder and try again.")
+            alert.runModal()
+        }
+        if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
+        launchAtLogin = service.status == .enabled
     }
 }

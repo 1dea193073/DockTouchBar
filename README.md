@@ -81,28 +81,18 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 | **Tap** an icon | Switch to the app, or launch it. If its windows are on another desktop (Space), jump to that desktop |
 | **Double-tap** | Minimize the current window, like its yellow button. Needs Accessibility permission. Tap again to restore |
 | **Long-press** | Close the app, and always tell you what happened. A progress bar fills under the icon while you hold, and a "Closing …" countdown appears at the right edge over a pixel-art season (your pick in the menu); release early and it counts as a tap. The app is always quit entirely (same as ⌘Q), whatever its number of windows or whether they are minimized or hidden. Finder can't be quit, so all its windows are closed instead (minimized ones too; if they are on another desktop it jumps there first). If the app can't close because it is waiting for you (an "unsaved changes" sheet) or does not close, the Touch Bar switches to it, across desktops, and says so |
-| **Tap Trash** | Open the Trash in Finder |
+| **Trash** | Tap opens the Trash window in Finder; double-tap minimizes it; long-press closes it. It dims while the window is closed (and disappears in "only show running apps" mode) |
 | **Swipe** | Scroll when the icons don't all fit; closing an app keeps the current area in view |
 | **Coffee cup** (right end, with animated steam) | Take a break: hide the Dock for a moment and hand the Touch Bar back to the system (brightness, volume). It returns on its own after 10–60 s |
 | **Center / maximize button** (far right) | Center the frontmost app's window; tap again to maximize it (fills the usable area, not native full screen), and again to center it. If you moved the window yourself or switched apps, it centers first, and the icon follows the window's current state. Needs Accessibility permission |
 
-Menu bar settings:
+The menu bar menu keeps the everyday switches: Show Dock on Touch Bar, Only show running apps (off by default: pinned apps are shown too; apps that would be dimmed, including Finder without windows and a closed Trash, are hidden, and Finder sits at the far left), Center the icons (when they fit; once they overflow they start from the left and scroll), Show the center / maximize button, and Launch at login. **Settings…** opens the settings window, which has three pages:
 
-- Show Dock on Touch Bar (on / off)
-- Hide for a moment after tapping the coffee cup: 10 / 20 / 30 / 60 s
-- Only show running apps (off by default: pinned apps are shown too)
+- **Settings** — icon spacing; hide-for-a-moment time after tapping the coffee cup (10 / 20 / 30 / 60 s); the size of the centered window (60–100% of the screen height; width same as height, or 50–100% of the screen width); double-tap to minimize; long-press to close (Off / 1 / 2 / 3 / 5 s) and its style (Spring / Summer / Autumn / Winter, with a short preview on the Touch Bar); yielding to system Touch Bar controls (independent screenshot / recording and Fn switches, on by default); language (Follow System / 简体中文 / English); Accessibility permission status with a shortcut to System Settings (nothing else needs a permission); and the "why can't I see the Dock?" diagnosis
+- **How to use** — gestures and buttons
+- **About** — version, update check, product page and build diary links, Star button
 
-- Show the center / maximize button, and the size of the centered window (60–100% of the screen height; width same as height, or 50–100% of the screen width)
-
-- Permissions — shows whether Accessibility is on, what it is used for (jumping to another desktop, center / maximize, closing Finder's windows, spotting a confirmation dialog, minimizing windows, and detecting Fn for yielding) and takes you to System Settings to turn it on; nothing else needs a permission
-- Double-tap an icon: minimize the current window
-- Long-press an icon: close the app (Off / 1 s / 2 s / 3 s / 5 s)
-- Long-press style: Spring / Summer / Autumn / Winter (the Touch Bar plays a short preview when you pick one)
-
-- Yield to system Touch Bar controls: independent screenshot / recording and Fn switches (on by default). While enabled, the Dock hides temporarily and returns when the system task ends. Turning a switch off takes effect immediately and is remembered after restart.
-- Language: Follow System / 简体中文 / English
-- Launch at login
-- About — usage guide, product page and build diary links, Star button
+The app has an icon in the Dock too, so you can launch it from there after installing.
 
 Opening the app again from Applications while it is running pops up the menu.
 
@@ -134,7 +124,7 @@ Things to know:
 
 Accessibility enables cross-desktop window switching, double-tap minimization, center / maximize, closing Finder's windows, detecting confirmation dialogs, and Fn yielding. Without it, basic launching and activation remain available; these features are limited.
 
-1. Menu bar icon → **Permissions** → **Accessibility: off — click to turn it on…** (once granted it reads **on** with a tick)
+1. Menu bar icon → **Settings…** → **Permissions** → **Turn on…** (once granted it reads **Accessibility: on**)
 2. In System Settings → Privacy & Security → Accessibility, turn DockTouchBar on.
 
 If it still asks after you turned it on, the old entry is stale (this happens when the app's signature changed): select DockTouchBar in the list, click **−**, then add it again. Or run `tccutil reset Accessibility com.maohuhu.docktouchbar` and repeat step 1.

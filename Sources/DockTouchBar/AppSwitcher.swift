@@ -154,7 +154,10 @@ enum AppSwitcher {
     /// 双击按目标窗口的黄色最小化按钮；台前调度下允许窗口被收进侧栏而 AXMinimized 仍为 false。
     /// 先取消第一下的切换纠正，否则它会把刚收起的窗口重新提回来。失败时说明原因，不隐藏整个 App。
     static func minimize(_ tile: DockTile, completion: @escaping (String?) -> Void) {
-        guard let url = tile.url, let app = DockModel.runningApp(bundleID: tile.bundleID, url: url) else { return }
+        // 垃圾桶：对象是访达里那个废纸篓窗口。
+        let isTrash = tile.kind == .trash
+        guard let url = tile.url,
+              let app = isTrash ? TrashWindow.finderApp : DockModel.runningApp(bundleID: tile.bundleID, url: url) else { return }
         clickLock.lock()
         latestClick = (latestClick.serial + 1, -1)
         let serial = latestClick.serial
@@ -188,14 +191,17 @@ enum AppSwitcher {
                 return (value as! AXUIElement)
             }
             var candidates: [AXUIElement] = []
-            for name in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
+            if isTrash {
+                candidates = TrashWindow.windows() ?? []
+            }
+            for name in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] where !isTrash {
                 if let candidate = axElement(element, name), let window = containingWindow(of: candidate) {
                     candidates.append(window)
                 }
             }
             var windows: CFTypeRef?
             AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &windows)
-            candidates += (windows as? [AXUIElement] ?? [])
+            if !isTrash { candidates += (windows as? [AXUIElement] ?? []) }
             guard let window = candidates.first(where: { isRealWindow($0, strict: true) }),
                   let button = axElement(window, kAXMinimizeButtonAttribute) else {
                 finish(L10n.tr("这个 App 没有可最小化的窗口", "This app has no window to minimize"))

@@ -1,82 +1,28 @@
 import AppKit
 import ServiceManagement
 
-/// 菜单栏设置：显示、手势、系统 Touch Bar 避让、语言、登录启动、权限和关于。
+/// 菜单栏菜单：几个常用开关 + “设置…”按钮（打开设置窗口）+ 退出。其余选项都在设置窗口里。
 /// 菜单文字全部在 `menuNeedsUpdate` 里按当前语言重新设置，所以切换语言后不用重启。
+/// 设置窗口和菜单都只改 UserDefaults，`applySettings` 监听变化后统一同步给 Dock。
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private enum Key {
-        static let enabled = "enabled"
-        static let showPinned = "showPinned"
-        // 保留原来的存储键，继承已有用户是否启用双击的选择。
-        static let doubleTapMinimize = "doubleTapHide"
-        static let yieldCapture = "yieldSystemCapture"
-        static let yieldFunctionRow = "yieldFunctionRow"
-        static let longPressSeconds = "longPressSeconds"
-        static let hideSeconds = "hideSeconds"
-        static let showCenterButton = "showCenterButton"
-        static let centerHeight = "centerHeightPercent"
-        static let centerWidth = "centerWidthPercent"
-        static let iconSpacing = "iconSpacing"
-    }
-
-    /// 长按退出 App 的可选时长（秒），0 = 不启用。
-    private static let longPressOptions = [0, 1, 2, 3, 5]
-    /// 点“咖啡杯”后临时隐藏 Dock 的可选时长（秒）。
-    private static let hideOptions = [10, 20, 30, 60]
-    /// 居中后窗口的高度（占屏幕可用高度的百分比）。
-    private static let heightOptions = [60, 70, 80, 90, 100]
-    /// 居中后窗口的宽度：0 = 和高度一样（正方形），其余是占屏幕可用宽度的百分比。
-    private static let widthOptions = [0, 50, 60, 70, 80, 90, 100]
-    /// 图标之间的间距（pt）可选挡位。
-    private static let spacingOptions = [0, 2, 4, 6, 8]
+    private typealias Key = SettingsKey
 
     private let dock = DockBarController()
-    private let about = AboutWindowController()
+    private let settingsWindow = SettingsWindowController()
     private let defaults = UserDefaults.standard
     private var statusItem: NSStatusItem?
+    private var launched = false
+    private var appliedEnabled: Bool?
 
     private lazy var setupWarningItem = makeItem(#selector(fixTouchBarSetup))
-    private lazy var diagnoseItem = makeItem(#selector(showDiagnostics))
     /// 显示后自检没通过：Dock 应该在显示却没有出现。
     private var dockFailedToShow = false
     private lazy var enabledItem = makeItem(#selector(toggleEnabled))
-    private lazy var hideDurationItem = makeSubmenuItem(
-        options: Self.hideOptions.map { ($0, #selector(setHideDuration(_:))) })
-    private lazy var centerButtonItem = makeItem(#selector(toggleCenterButton))
-    private lazy var centerHeightItem = makeSubmenuItem(
-        options: Self.heightOptions.map { ($0, #selector(setCenterHeight(_:))) })
-    private lazy var centerWidthItem = makeSubmenuItem(
-        options: Self.widthOptions.map { ($0, #selector(setCenterWidth(_:))) })
     private lazy var pinnedItem = makeItem(#selector(togglePinned))
-    private lazy var spacingItem = makeSubmenuItem(
-        options: Self.spacingOptions.map { ($0, #selector(setIconSpacing(_:))) })
-    private lazy var doubleTapItem = makeItem(#selector(toggleDoubleTap))
-    private lazy var avoidanceItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    private lazy var captureAvoidanceItem = makeItem(#selector(toggleCaptureAvoidance))
-    private lazy var fnAvoidanceItem = makeItem(#selector(toggleFunctionRowAvoidance))
-    private lazy var avoidanceExplanation = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    private lazy var longPressItem = makeSubmenuItem(
-        options: Self.longPressOptions.map { ($0, #selector(setLongPress(_:))) })
-    private lazy var hintThemeItem = makeSubmenuItem(
-        options: QuitHintTheme.allCases.indices.map { ($0, #selector(setHintTheme(_:))) })
-    private lazy var languageItem = makeSubmenuItem(
-        options: AppLanguage.allCases.indices.map { ($0, #selector(setLanguage(_:))) })
+    private lazy var centerIconsItem = makeItem(#selector(toggleCenterIcons))
+    private lazy var centerButtonItem = makeItem(#selector(toggleCenterButton))
     private lazy var loginItem = makeItem(#selector(toggleLaunchAtLogin))
-    /// “权限”子菜单：列出软件需要的权限、现在的状态，点一下去系统设置里开启。目前只有辅助功能一项。
-    private lazy var permissionsItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    private lazy var accessibilityRow = makeItem(#selector(requestAccessibility))
-    private lazy var accessibilityUses: [NSMenuItem] = (0..<5).map { _ in
-        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        return item
-    }
-    private lazy var permissionsFootnote: NSMenuItem = {
-        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        return item
-    }()
-    private lazy var checkUpdatesItem = makeItem(#selector(checkForUpdates))
-    private lazy var aboutItem = makeItem(#selector(showAbout))
+    private lazy var settingsItem = makeItem(#selector(showSettings), keyEquivalent: ",")
     private lazy var quitItem = makeItem(#selector(NSApplication.terminate(_:)), target: NSApp, keyEquivalent: "q")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -85,76 +31,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSApp.terminate(nil)
             return
         }
-        defaults.register(defaults: [Key.enabled: true, Key.showPinned: true,
-                                     Key.doubleTapMinimize: true, Key.longPressSeconds: 3,
-                                     Key.yieldCapture: true, Key.yieldFunctionRow: true,
-                                     Key.hideSeconds: 20, Key.showCenterButton: true,
-                                     Key.centerHeight: 80, Key.centerWidth: 0,
-                                     Key.iconSpacing: 4])
+        defaults.register(defaults: SettingsKey.defaults)
+        settingsWindow.onDiagnose = { [weak self] in self?.showDiagnostics() }
 
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
-        // 分组：显示 → 切换与手势 → 通用 → 关于/退出
         setupWarningItem.isHidden = true
         menu.addItem(setupWarningItem)
         menu.addItem(enabledItem)
-        menu.addItem(hideDurationItem)
         menu.addItem(pinnedItem)
-        menu.addItem(spacingItem)
-        menu.addItem(.separator())
+        menu.addItem(centerIconsItem)
         menu.addItem(centerButtonItem)
-        menu.addItem(centerHeightItem)
-        menu.addItem(centerWidthItem)
-        menu.addItem(.separator())
-        let permissionsMenu = NSMenu()
-        permissionsMenu.autoenablesItems = false
-        permissionsMenu.addItem(accessibilityRow)
-        permissionsMenu.addItem(.separator())
-        accessibilityUses.forEach { permissionsMenu.addItem($0) }
-        permissionsMenu.addItem(.separator())
-        permissionsMenu.addItem(permissionsFootnote)
-        permissionsItem.submenu = permissionsMenu
-        menu.addItem(permissionsItem)
-        menu.addItem(doubleTapItem)
-        menu.addItem(longPressItem)
-        menu.addItem(hintThemeItem)
-        menu.addItem(.separator())
-        let avoidanceMenu = NSMenu()
-        avoidanceMenu.autoenablesItems = false
-        avoidanceMenu.addItem(captureAvoidanceItem)
-        avoidanceMenu.addItem(fnAvoidanceItem)
-        avoidanceMenu.addItem(.separator())
-        avoidanceExplanation.isEnabled = false
-        avoidanceMenu.addItem(avoidanceExplanation)
-        avoidanceItem.submenu = avoidanceMenu
-        menu.addItem(avoidanceItem)
-        menu.addItem(languageItem)
         menu.addItem(loginItem)
         menu.addItem(.separator())
-        menu.addItem(diagnoseItem)
-        menu.addItem(checkUpdatesItem)
-        menu.addItem(aboutItem)
+        menu.addItem(settingsItem)
         menu.addItem(quitItem)
+
+        NSApp.mainMenu = makeMainMenu()
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "dock.rectangle", accessibilityDescription: "Touch Bar Dock")
         item.menu = menu
         statusItem = item
 
-        dock.showsPinnedApps = defaults.bool(forKey: Key.showPinned)
+        applySettings()
+        launched = true
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.applySettings()
+        }
+        scheduleDisplayCheck()
+    }
+
+    /// 把保存的设置同步给 Dock。只在值真的变了才赋值，避免无谓的重绘。
+    private func applySettings() {
+        let showPinned = defaults.bool(forKey: Key.showPinned)
+        if dock.showsPinnedApps != showPinned { dock.showsPinnedApps = showPinned }
         dock.doubleTapMinimizes = defaults.bool(forKey: Key.doubleTapMinimize)
         dock.yieldsToSystemCapture = defaults.bool(forKey: Key.yieldCapture)
         dock.yieldsToFunctionRow = defaults.bool(forKey: Key.yieldFunctionRow)
         dock.longPressDuration = TimeInterval(defaults.integer(forKey: Key.longPressSeconds))
-        dock.quitHintTheme = QuitHintTheme.saved
-        dock.showsCenterButton = defaults.bool(forKey: Key.showCenterButton)
+        let theme = QuitHintTheme.saved
+        if dock.quitHintTheme != theme {
+            dock.quitHintTheme = theme
+            // 换风格后立刻在 Touch Bar 上演示一遍，不用真的去长按一个 App。
+            if launched { dock.previewQuitHint() }
+        }
+        let showCenter = defaults.bool(forKey: Key.showCenterButton)
+        if dock.showsCenterButton != showCenter {
+            dock.showsCenterButton = showCenter
+            if launched, showCenter, !AppSwitcher.hasAccessibilityAccess { AppSwitcher.requestAccessibilityAccess() }
+        }
         dock.centerHeightPercent = defaults.integer(forKey: Key.centerHeight)
         dock.centerWidthPercent = defaults.integer(forKey: Key.centerWidth)
         dock.pauseDuration = TimeInterval(defaults.integer(forKey: Key.hideSeconds))
         dock.iconSpacing = CGFloat(defaults.integer(forKey: Key.iconSpacing))
-        applyEnabled()
-        scheduleDisplayCheck()
+        dock.centersIcons = defaults.bool(forKey: Key.centerIcons)
+        let enabled = defaults.bool(forKey: Key.enabled)
+        if appliedEnabled != enabled {
+            appliedEnabled = enabled
+            applyEnabled()
+        }
     }
 
     /// App 已经在运行时，再从「应用程序」或启动台打开它：弹出菜单栏菜单，方便开关和设置。
@@ -169,7 +106,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         refreshSetupWarning()
-        diagnoseItem.title = L10n.tr("诊断：为什么看不到 Dock？…", "Diagnose: why can't I see the Dock?…")
         let available = TouchBarBridge.isAvailable
         enabledItem.isEnabled = available
         enabledItem.title = available
@@ -177,185 +113,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             : L10n.tr("当前系统不支持（找不到 Touch Bar 接口）", "Not supported on this system (Touch Bar API not found)")
         enabledItem.state = available && defaults.bool(forKey: Key.enabled) ? .on : .off
 
-        let hideSeconds = defaults.integer(forKey: Key.hideSeconds)
-        hideDurationItem.title = L10n.tr("点咖啡杯后临时隐藏：\(hideSeconds) 秒", "Hide for a moment after tapping the coffee cup: \(hideSeconds) s")
-        for option in hideDurationItem.submenu?.items ?? [] {
-            option.title = L10n.tr("\(option.tag) 秒", "\(option.tag) s")
-            option.state = option.tag == hideSeconds ? .on : .off
-        }
-
         // 界面上是“只显示正在运行的 App”，存的仍是原来的 showPinned（取反），已有用户的设置不受影响。
         pinnedItem.title = L10n.tr("只显示正在运行的 App", "Only show running apps")
         pinnedItem.state = defaults.bool(forKey: Key.showPinned) ? .off : .on
 
-        let spacing = defaults.integer(forKey: Key.iconSpacing)
-        spacingItem.title = L10n.tr("图标间距：\(spacing)pt", "Icon spacing: \(spacing)pt")
-        for option in spacingItem.submenu?.items ?? [] {
-            option.title = L10n.tr("\(option.tag)pt", "\(option.tag)pt")
-            option.state = option.tag == spacing ? .on : .off
-        }
+        centerIconsItem.title = L10n.tr("图标居中显示", "Center the icons")
+        centerIconsItem.state = defaults.bool(forKey: Key.centerIcons) ? .on : .off
+        centerIconsItem.toolTip = L10n.tr("图标不多时居中；图标超出 Touch Bar 宽度时仍从左边开始滑动",
+                                          "Centers the icons when they fit; once they overflow the Touch Bar they start from the left and scroll")
 
         centerButtonItem.title = L10n.tr("显示“窗口居中 / 最大化”按钮", "Show the center / maximize button")
         centerButtonItem.state = defaults.bool(forKey: Key.showCenterButton) ? .on : .off
 
-        let height = defaults.integer(forKey: Key.centerHeight)
-        centerHeightItem.title = L10n.tr("居中窗口的高度：\(height)%", "Centered window height: \(height)%")
-        for option in centerHeightItem.submenu?.items ?? [] {
-            option.title = L10n.tr("屏幕高度的 \(option.tag)%", "\(option.tag)% of screen height")
-            option.state = option.tag == height ? .on : .off
-        }
-
-        let width = defaults.integer(forKey: Key.centerWidth)
-        centerWidthItem.title = L10n.tr("居中窗口的宽度：", "Centered window width: ")
-            + (width == 0 ? L10n.tr("与高度相同", "same as height") : "\(width)%")
-        for option in centerWidthItem.submenu?.items ?? [] {
-            option.title = option.tag == 0
-                ? L10n.tr("与高度相同（正方形）", "Same as height (square)")
-                : L10n.tr("屏幕宽度的 \(option.tag)%", "\(option.tag)% of screen width")
-            option.state = option.tag == width ? .on : .off
-        }
-
-        doubleTapItem.title = L10n.tr("双击图标：最小化当前窗口", "Double-tap an icon: minimize the window")
-        doubleTapItem.state = defaults.bool(forKey: Key.doubleTapMinimize) ? .on : .off
-        doubleTapItem.toolTip = L10n.tr("等同窗口左上角黄色按钮，需要辅助功能权限", "Same as the yellow window button; needs Accessibility permission")
-        avoidanceItem.title = L10n.tr("系统 Touch Bar 避让", "Yield to system Touch Bar controls")
-        captureAvoidanceItem.title = L10n.tr("截图 / 录屏时自动避让", "Yield during screenshots / recording")
-        captureAvoidanceItem.state = defaults.bool(forKey: Key.yieldCapture) ? .on : .off
-        fnAvoidanceItem.title = L10n.tr("按住 Fn 时自动避让", "Yield while Fn is held")
-        fnAvoidanceItem.state = defaults.bool(forKey: Key.yieldFunctionRow) ? .on : .off
-        avoidanceExplanation.title = L10n.tr("开启时 Dock 临时隐藏，结束后自动恢复", "When on, the Dock hides temporarily and returns afterward")
-
-        let seconds = defaults.integer(forKey: Key.longPressSeconds)
-        longPressItem.title = L10n.tr("长按图标：退出 App（", "Long-press an icon: quit the app (")
-            + (seconds == 0 ? L10n.tr("不启用", "Off") : L10n.tr("\(seconds) 秒", "\(seconds) s")) + L10n.tr("）", ")")
-        for option in longPressItem.submenu?.items ?? [] {
-            option.title = option.tag == 0 ? L10n.tr("不启用", "Off") : L10n.tr("按住 \(option.tag) 秒", "Hold \(option.tag) s")
-            option.state = option.tag == seconds ? .on : .off
-        }
-
-        let theme = QuitHintTheme.saved
-        hintThemeItem.title = L10n.tr("长按提示风格：", "Long-press style: ") + theme.title
-        for option in hintThemeItem.submenu?.items ?? [] {
-            let candidate = QuitHintTheme.allCases[option.tag]
-            option.title = candidate.title
-            option.state = candidate == theme ? .on : .off
-        }
-
-        languageItem.title = L10n.tr("语言", "Language")
-        for option in languageItem.submenu?.items ?? [] {
-            let language = AppLanguage.allCases[option.tag]
-            option.title = Self.title(of: language)
-            option.state = language == L10n.preference ? .on : .off
-        }
-
         loginItem.title = L10n.tr("登录时自动启动", "Launch at login")
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
 
-        // 权限：始终显示状态。有权限时打勾，点一下打开系统设置（方便查看或关闭）；没权限时点一下去开启。
-        let hasAccess = AppSwitcher.hasAccessibilityAccess
-        permissionsItem.title = hasAccess
-            ? L10n.tr("权限：辅助功能已开启", "Permissions: Accessibility is on")
-            : L10n.tr("⚠︎ 权限：辅助功能未开启", "⚠︎ Permissions: Accessibility is off")
-        accessibilityRow.title = hasAccess
-            ? L10n.tr("辅助功能：已开启（点一下打开系统设置）", "Accessibility: on (click to open System Settings)")
-            : L10n.tr("辅助功能：未开启，点一下去开启…", "Accessibility: off — click to turn it on…")
-        accessibilityRow.state = hasAccess ? .on : .off
-        let uses = [
-            L10n.tr("用来：跨桌面切换到 App 的窗口", "Used to: jump to an app's window on another desktop"),
-            L10n.tr("用来：窗口居中、最大化", "Used to: center and maximize a window"),
-            L10n.tr("用来：长按关闭访达的窗口、发现确认框", "Used to: close Finder's windows on long-press, and spot a confirmation dialog"),
-            L10n.tr("用来：双击最小化窗口、监听 Fn 避让", "Used to: minimize windows on double-tap and detect Fn for yielding"),
-            L10n.tr("没有它：其他功能照常，只是这几项不可用", "Without it: everything else works, only these are unavailable"),
-        ]
-        for (item, text) in zip(accessibilityUses, uses) { item.title = text }
-        permissionsFootnote.title = L10n.tr("除此之外，不需要其他任何权限", "No other permission is needed")
-
-        checkUpdatesItem.title = L10n.tr("检查更新…", "Check for Updates…")
-        aboutItem.title = L10n.tr("关于 \(AppInfo.name)…", "About \(AppInfo.name)…")
+        settingsItem.title = L10n.tr("设置…", "Settings…")
         quitItem.title = L10n.tr("退出", "Quit \(AppInfo.name)")
-    }
-
-    private static func title(of language: AppLanguage) -> String {
-        switch language {
-        case .system: return L10n.tr("跟随系统", "Follow System")
-        case .chinese: return "简体中文"
-        case .english: return "English"
-        }
+        refreshMainMenuTitles()
     }
 
     // MARK: - Actions
 
     @objc private func toggleEnabled() {
         defaults.set(!defaults.bool(forKey: Key.enabled), forKey: Key.enabled)
-        applyEnabled()
     }
 
     @objc private func togglePinned() {
-        let show = !defaults.bool(forKey: Key.showPinned)
-        defaults.set(show, forKey: Key.showPinned)
-        dock.showsPinnedApps = show
+        defaults.set(!defaults.bool(forKey: Key.showPinned), forKey: Key.showPinned)
     }
 
-    @objc private func setHideDuration(_ sender: NSMenuItem) {
-        defaults.set(sender.tag, forKey: Key.hideSeconds)
-        dock.pauseDuration = TimeInterval(sender.tag)
-    }
-
-    @objc private func setIconSpacing(_ sender: NSMenuItem) {
-        defaults.set(sender.tag, forKey: Key.iconSpacing)
-        dock.iconSpacing = CGFloat(sender.tag)
+    @objc private func toggleCenterIcons() {
+        defaults.set(!defaults.bool(forKey: Key.centerIcons), forKey: Key.centerIcons)
     }
 
     @objc private func toggleCenterButton() {
-        let show = !defaults.bool(forKey: Key.showCenterButton)
-        defaults.set(show, forKey: Key.showCenterButton)
-        dock.showsCenterButton = show
-        if show, !AppSwitcher.hasAccessibilityAccess { AppSwitcher.requestAccessibilityAccess() }
-    }
-
-    @objc private func setCenterHeight(_ sender: NSMenuItem) {
-        defaults.set(sender.tag, forKey: Key.centerHeight)
-        dock.centerHeightPercent = sender.tag
-    }
-
-    @objc private func setCenterWidth(_ sender: NSMenuItem) {
-        defaults.set(sender.tag, forKey: Key.centerWidth)
-        dock.centerWidthPercent = sender.tag
-    }
-
-    @objc private func toggleDoubleTap() {
-        let on = !defaults.bool(forKey: Key.doubleTapMinimize)
-        defaults.set(on, forKey: Key.doubleTapMinimize)
-        dock.doubleTapMinimizes = on
-    }
-
-    @objc private func toggleCaptureAvoidance() {
-        let on = !defaults.bool(forKey: Key.yieldCapture)
-        defaults.set(on, forKey: Key.yieldCapture)
-        dock.yieldsToSystemCapture = on
-    }
-
-    @objc private func toggleFunctionRowAvoidance() {
-        let on = !defaults.bool(forKey: Key.yieldFunctionRow)
-        defaults.set(on, forKey: Key.yieldFunctionRow)
-        dock.yieldsToFunctionRow = on
-    }
-
-    @objc private func setLongPress(_ sender: NSMenuItem) {
-        defaults.set(sender.tag, forKey: Key.longPressSeconds)
-        dock.longPressDuration = TimeInterval(sender.tag)
-    }
-
-    /// 换风格后立刻在 Touch Bar 上演示一遍，不用真的去长按一个 App。
-    @objc private func setHintTheme(_ sender: NSMenuItem) {
-        let theme = QuitHintTheme.allCases[sender.tag]
-        UserDefaults.standard.set(theme.rawValue, forKey: QuitHintTheme.defaultsKey)
-        dock.quitHintTheme = theme
-        dock.previewQuitHint()
-    }
-
-    @objc private func setLanguage(_ sender: NSMenuItem) {
-        L10n.preference = AppLanguage.allCases[sender.tag]
+        defaults.set(!defaults.bool(forKey: Key.showCenterButton), forKey: Key.showCenterButton)
     }
 
     @objc private func toggleLaunchAtLogin() {
@@ -376,20 +169,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// 去开启辅助功能：弹出系统的授权提示，并打开系统设置里的辅助功能页。
-    @objc private func requestAccessibility() {
-        AppSwitcher.requestAccessibilityAccess()
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    @objc private func checkForUpdates() {
-        about.show(checkUpdates: true)
+    @objc private func showSettings() {
+        settingsWindow.show()
     }
 
     @objc private func showAbout() {
-        about.show()
+        settingsWindow.show(page: .about)
     }
 
     // MARK: - Touch Bar 显示自检与修复
@@ -508,6 +293,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // MARK: - 程序坞图标与主菜单
+
+    private let mainAboutItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let mainQuitItem = NSMenuItem(title: "", action: nil, keyEquivalent: "q")
+
+    /// 软件在程序坞里有图标之后，点它切到前台时顶部会出现系统菜单栏；放一个最小的应用菜单（关于、退出），
+    /// 否则 ⌘Q 不起作用。
+    private func makeMainMenu() -> NSMenu {
+        let mainMenu = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        mainAboutItem.action = #selector(showAbout)
+        mainAboutItem.target = self
+        mainQuitItem.action = #selector(NSApplication.terminate(_:))
+        mainQuitItem.target = NSApp
+        appMenu.addItem(mainAboutItem)
+        appMenu.addItem(.separator())
+        appMenu.addItem(mainQuitItem)
+        appItem.submenu = appMenu
+        mainMenu.addItem(appItem)
+        refreshMainMenuTitles()
+        return mainMenu
+    }
+
+    private func refreshMainMenuTitles() {
+        mainAboutItem.title = L10n.tr("关于 \(AppInfo.name)", "About \(AppInfo.name)")
+        mainQuitItem.title = L10n.tr("退出 \(AppInfo.name)", "Quit \(AppInfo.name)")
+    }
+
     // MARK: - Helpers
 
     private func applyEnabled() {
@@ -520,20 +334,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func makeItem(_ action: Selector, target: AnyObject? = nil, keyEquivalent: String = "") -> NSMenuItem {
         let item = NSMenuItem(title: "", action: action, keyEquivalent: keyEquivalent)
         item.target = target ?? self
-        return item
-    }
-
-    /// 带子菜单的项；`options` 里每个元素是（tag，点击后调用的方法）。
-    private func makeSubmenuItem(options: [(Int, Selector)]) -> NSMenuItem {
-        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-        for (tag, action) in options {
-            let option = makeItem(action)
-            option.tag = tag
-            submenu.addItem(option)
-        }
-        item.submenu = submenu
         return item
     }
 
