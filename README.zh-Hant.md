@@ -31,6 +31,8 @@
   <a href="README.tr.md">Türkçe</a>
 </p>
 
+> **兩個版本：** 標準版 DockTouchBar，以及 DockTouchBar Vibe（在圖示上顯示 AI 編程智慧體的即時狀態）。詳情與下載請見[簡體中文說明](README.zh-CN.md#两个版本)或[English README](README.md#two-editions)。
+
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
   <img src="https://img.shields.io/badge/Apple%20晶片-已測試-2e7d32.svg" alt="Apple 晶片：已測試">

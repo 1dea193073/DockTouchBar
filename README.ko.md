@@ -31,6 +31,8 @@
   <a href="README.tr.md">Türkçe</a>
 </p>
 
+> **두 가지 버전:** 표준 DockTouchBar와, AI 코딩 에이전트의 실시간 상태를 아이콘에 보여 주는 DockTouchBar Vibe. 차이점과 다운로드는 [English README](README.md#two-editions)를 참고하세요.
+
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
   <img src="https://img.shields.io/badge/Apple%20silicon-tested-2e7d32.svg" alt="Apple silicon: tested">
