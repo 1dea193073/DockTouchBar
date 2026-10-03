@@ -183,7 +183,7 @@ final class AgentOverlayLayer: CALayer {
         let textWidth: CGFloat = 11, cursorWidth: CGFloat = 4.5, cursorHeight: CGFloat = 8
         let total = textWidth + 1 + cursorWidth
         let left = area.midX - total / 2
-        let baseline = area.minY + 2.5
+        let baseline = area.minY + 9.5
         okText.frame = CGRect(x: left, y: baseline - 2.5, width: textWidth + 2, height: 12)
         cursor.frame = CGRect(x: left + textWidth + 1, y: baseline, width: cursorWidth, height: cursorHeight)
         let blink = CAKeyframeAnimation(keyPath: "opacity")
@@ -195,13 +195,15 @@ final class AgentOverlayLayer: CALayer {
         cursor.add(blink, forKey: "blink")
     }
 
-    /// 像素风边框：把图标按 1pt（2×2 设备像素）一格量化，不透明的格子里，贴着外缘的一圈画成奶白色，
-    /// 紧挨着它里面再一圈压成半透明的黑。格子是整格的，圆角自然变成阶梯状，像经典 Mac 的位图图标。
+    /// 像素风的“经典 Mac”边框，整个图标就像显示在一台 Macintosh 的屏幕上：
+    /// - 把图标按 1pt（2×2 设备像素）一格量化，不透明格子里贴着外缘的一圈是机身（奶白色，上亮下暗的渐变，圆角是阶梯状）；
+    ///   紧挨着里面再一圈压成半透明的黑，像屏幕边框。
+    /// - 底部“下巴”上只画三笔：屏幕和下巴之间一条暗线、右边一条长长的软驱槽、左边一个小点——用最少的像素让人认出是那台 Mac。
     private static func outlineImage(of icon: CGImage) -> CGImage? {
         let w = icon.width, h = icon.height
         let cell = 2
         let gw = w / cell, gh = h / cell
-        guard gw > 4, gh > 4,
+        guard gw > 12, gh > 12,
               let source = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
@@ -210,11 +212,12 @@ final class AgentOverlayLayer: CALayer {
                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         source.draw(icon, in: CGRect(x: 0, y: 0, width: w, height: h))
         guard let data = source.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
-        // 一格里 4 个像素的平均不透明度过半才算“实”。
+        // 格子坐标 (gx, gy)：gy 从图标底边往上数，和输出画布一致；内存里的行是从上往下的，这里换算一下。
         func solid(_ gx: Int, _ gy: Int) -> Bool {
             guard gx >= 0, gx < gw, gy >= 0, gy < gh else { return false }
+            let top = gh - 1 - gy
             var total = 0
-            for dy in 0..<cell { for dx in 0..<cell { total += Int(data[((gy * cell + dy) * w + gx * cell + dx) * 4 + 3]) } }
+            for dy in 0..<cell { for dx in 0..<cell { total += Int(data[((top * cell + dy) * w + gx * cell + dx) * 4 + 3]) } }
             return total / (cell * cell) >= 128
         }
         func touchesEmpty(_ gx: Int, _ gy: Int) -> Bool {
@@ -223,18 +226,28 @@ final class AgentOverlayLayer: CALayer {
         func touchesEdge(_ gx: Int, _ gy: Int) -> Bool {
             [(-1, 0), (1, 0), (0, -1), (0, 1)].contains { solid(gx + $0.0, gy + $0.1) && touchesEmpty(gx + $0.0, gy + $0.1) }
         }
-        let rim = CGColor(srgbRed: 0.96, green: 0.95, blue: 0.88, alpha: 1)
-        let inner = CGColor(gray: 0, alpha: 0.55)
+        func plot(_ gx: Int, _ gy: Int, _ color: CGColor) {
+            guard solid(gx, gy) else { return }
+            output.setFillColor(color)
+            output.fill(CGRect(x: gx * cell, y: gy * cell, width: cell, height: cell))
+        }
+        // 机身奶白色，亮度上面高、下面低（屏幕玻璃那头亮一点），整体比纯白柔和。
+        func body(_ gy: Int) -> CGColor {
+            let t = CGFloat(gy) / CGFloat(max(gh - 1, 1))
+            return CGColor(srgbRed: 0.90, green: 0.88, blue: 0.78, alpha: 0.5 + 0.38 * t)
+        }
+        let inner = CGColor(gray: 0, alpha: 0.5)
         for gy in 0..<gh {
             for gx in 0..<gw where solid(gx, gy) {
-                if touchesEmpty(gx, gy) {
-                    output.setFillColor(rim)
-                } else if touchesEdge(gx, gy) {
-                    output.setFillColor(inner)
-                } else { continue }
-                output.fill(CGRect(x: gx * cell, y: gy * cell, width: cell, height: cell))
+                if touchesEmpty(gx, gy) { plot(gx, gy, body(gy)) } else if touchesEdge(gx, gy) { plot(gx, gy, inner) }
             }
         }
+        // 下巴：从底边往上第 7 行是屏幕和下巴的分界线，第 4 行是软驱槽和指示点。
+        let ink = CGColor(gray: 0, alpha: 0.65)
+        for gx in 3..<(gw - 3) where !touchesEmpty(gx, 7) { plot(gx, 7, ink) }
+        let slot = CGColor(srgbRed: 0.90, green: 0.88, blue: 0.78, alpha: 0.7)
+        for gx in Int(Double(gw) * 0.48)..<Int(Double(gw) * 0.8) { plot(gx, 4, slot) }
+        plot(Int(Double(gw) * 0.2), 4, slot)
         return output.makeImage()
     }
 
