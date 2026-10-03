@@ -216,13 +216,14 @@ final class AgentOverlayLayer: CALayer {
         return context.makeImage()
     }
 
-    /// 把图标重画成 8-bit 像素画，不是“缩小再限色”（那只是糊了一下）。用的是像素画的几样基本手法：
-    /// 1. 缩到 28×28 个格子（每格 2×2 像素），放大不插值，一格就是一个大像素；
-    /// 2. 先加强饱和度和对比度——像素画靠鲜明的色块说话，平淡的颜色缩小后会发灰；
-    /// 3. 为每个图标单独提取一个只有 `paletteSize` 种颜色的小调色板（median cut），而不是套通用色板，所以颜色是少而准的；
-    /// 4. 渐变的地方用 Bayer 4×4 有序抖动（老式 8 位机显示渐变的办法），平坦的地方就是干净的色块；
-    /// 5. 半透明的格子要么实心要么留空，边缘没有渐变。
-    private static let paletteSize = 10
+    /// 把图标重画成游戏里那种锐利的 8-bit 像素画，不是“缩小再限色”（那只是糊了一下），也没有渐变和抖动：
+    /// 1. 先在 56×56 的原图上加强饱和度和对比度——像素画靠鲜明的色块说话；
+    /// 2. 为每个图标单独提取一个只有 `paletteSize` 种颜色的小调色板（median cut）；
+    /// 3. 每个像素直接归到最近的调色板颜色——不平均，所以不会出现调色板以外的“中间色”；
+    /// 4. 缩成 28×28 个格子（每格 2×2 像素）时，每格取出现最多的那种颜色；平局取更暗的，这样细线条（轮廓、文字）不会被吃掉；
+    /// 5. 去掉孤立的噪点格（四邻居颜色都一样、只有自己不同），色块边界干净；
+    /// 6. 半透明的格子要么实心要么留空。放大时不插值，一格就是一个大像素。
+    private static let paletteSize = 8
 
     private static func pixelated(_ icon: CGImage) -> CGImage? {
         let n = 28, work = n * 2
@@ -237,43 +238,64 @@ final class AgentOverlayLayer: CALayer {
         source.interpolationQuality = .high
         source.draw(icon, in: CGRect(x: 0, y: 0, width: work, height: work))
 
-        // 每 2×2 取平均（按透明度加权），再加强饱和度和对比度。
         typealias RGB = (r: Float, g: Float, b: Float)
-        var cells = [RGB?](repeating: nil, count: n * n)
-        for y in 0..<n { for x in 0..<n {
-            var r: Float = 0, g: Float = 0, b: Float = 0, a: Float = 0
-            for dy in 0..<2 { for dx in 0..<2 {
-                let o = ((y * 2 + dy) * work + x * 2 + dx) * 4
-                r += Float(src[o]); g += Float(src[o + 1]); b += Float(src[o + 2]); a += Float(src[o + 3])
-            } }
-            guard a / 4 >= 128 else { continue }    // 半透明的格子留空
-            var color: RGB = (r / a, g / a, b / a)   // 预乘的颜色除以总透明度＝还原成不透明的颜色
-            let mean = (color.r + color.g + color.b) / 3
-            func boost(_ v: Float) -> Float { min(max(((mean + (v - mean) * 1.3) - 0.5) * 1.15 + 0.5, 0), 1) }
-            color = (boost(color.r), boost(color.g), boost(color.b))
-            cells[y * n + x] = color
-        } }
-
-        // 这个图标自己的调色板。
-        let palette = medianCut(cells.compactMap { $0 }, count: paletteSize)
+        // 1. 每个不透明像素：还原成不透明颜色，加强饱和度和对比度。
+        var pixels = [RGB?](repeating: nil, count: work * work)
+        for i in 0..<(work * work) {
+            let o = i * 4
+            let a = Float(src[o + 3])
+            guard a >= 128 else { continue }
+            let c: RGB = (min(Float(src[o]) / a, 1), min(Float(src[o + 1]) / a, 1), min(Float(src[o + 2]) / a, 1))
+            let mean = (c.r + c.g + c.b) / 3
+            func boost(_ v: Float) -> Float { min(max(((mean + (v - mean) * 1.4) - 0.5) * 1.2 + 0.5, 0), 1) }
+            pixels[i] = (boost(c.r), boost(c.g), boost(c.b))
+        }
+        // 2. 这个图标自己的小调色板。
+        let palette = medianCut(pixels.compactMap { $0 }, count: paletteSize)
         guard !palette.isEmpty else { return nil }
-
-        // Bayer 4×4 有序抖动：在找最近的调色板颜色之前，按格子位置给颜色加一点有规律的偏移。
-        let bayer: [Float] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
-        let spread: Float = 0.10
-        for y in 0..<n { for x in 0..<n {
-            // 位图内存的第 0 行是画面最上面一行，读和写用同一个方向，格子 (x, y) 的 y 从上往下数。
-            let target = (y * n + x) * 4
-            guard let color = cells[y * n + x] else { dst[target] = 0; dst[target + 1] = 0; dst[target + 2] = 0; dst[target + 3] = 0; continue }
-            let offset = (bayer[(y % 4) * 4 + x % 4] / 16 - 0.5) * spread
-            var best = palette[0], bestDistance = Float.greatestFiniteMagnitude
-            for candidate in palette {
-                let dr = color.r + offset - candidate.r, dg = color.g + offset - candidate.g, db = color.b + offset - candidate.b
+        func luminance(_ c: RGB) -> Float { 0.299 * c.r + 0.587 * c.g + 0.114 * c.b }
+        // 3. 每个像素归到最近的调色板颜色（下标），透明的是 -1。
+        let index: [Int] = pixels.map { pixel in
+            guard let c = pixel else { return -1 }
+            var best = 0, bestDistance = Float.greatestFiniteMagnitude
+            for (k, candidate) in palette.enumerated() {
+                let dr = c.r - candidate.r, dg = c.g - candidate.g, db = c.b - candidate.b
                 let distance = dr * dr + dg * dg + db * db
-                if distance < bestDistance { bestDistance = distance; best = candidate }
+                if distance < bestDistance { bestDistance = distance; best = k }
             }
-            dst[target] = UInt8(best.r * 255); dst[target + 1] = UInt8(best.g * 255); dst[target + 2] = UInt8(best.b * 255); dst[target + 3] = 255
+            return best
+        }
+        // 4. 2×2 一格：取出现最多的颜色，平局取更暗的。不透明的像素不到 2 个就留空。
+        var cells = [Int](repeating: -1, count: n * n)
+        for y in 0..<n { for x in 0..<n {
+            var counts = [Int](repeating: 0, count: palette.count)
+            var opaque = 0
+            for dy in 0..<2 { for dx in 0..<2 {
+                let k = index[(y * 2 + dy) * work + x * 2 + dx]
+                if k >= 0 { counts[k] += 1; opaque += 1 }
+            } }
+            guard opaque >= 2 else { continue }
+            var best = -1
+            for k in palette.indices where counts[k] > 0 {
+                if best < 0 || counts[k] > counts[best] || (counts[k] == counts[best] && luminance(palette[k]) < luminance(palette[best])) { best = k }
+            }
+            cells[y * n + x] = best
         } }
+        // 5. 去孤立噪点：四个邻居颜色一样、自己不同，就并进邻居。
+        var cleaned = cells
+        for y in 1..<(n - 1) { for x in 1..<(n - 1) {
+            let here = cells[y * n + x]
+            guard here >= 0 else { continue }
+            let around = [cells[y * n + x - 1], cells[y * n + x + 1], cells[(y - 1) * n + x], cells[(y + 1) * n + x]]
+            if let first = around.first, first >= 0, around.allSatisfy({ $0 == first }), first != here { cleaned[y * n + x] = first }
+        } }
+        // 6. 写出。位图内存的第 0 行是画面最上面一行，读和写用同一个方向。
+        for i in 0..<(n * n) {
+            let target = i * 4
+            guard cleaned[i] >= 0 else { dst[target] = 0; dst[target + 1] = 0; dst[target + 2] = 0; dst[target + 3] = 0; continue }
+            let c = palette[cleaned[i]]
+            dst[target] = UInt8(c.r * 255); dst[target + 1] = UInt8(c.g * 255); dst[target + 2] = UInt8(c.b * 255); dst[target + 3] = 255
+        }
         return out.makeImage()
     }
 
