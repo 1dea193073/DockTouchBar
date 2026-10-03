@@ -121,22 +121,25 @@ final class AgentMonitor {
         for line in text.split(separator: "\n") {
             let parts = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
             guard parts.count >= 2, let ppid = pid_t(parts[1]) else { continue }
-            let event = String(parts[0])
+            // 事件字段是 “事件名” 或 “事件名|智能体 id”（配对智能体的脚本会带上自己的 id，只用于日志和配对列表）。
+            let eventParts = parts[0].split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+            let event = String(eventParts[0])
+            let agent = eventParts.count == 2 ? String(eventParts[1]) : nil
             var sessionID: String?
             if parts.count == 3, let json = try? JSONSerialization.jsonObject(with: Data(parts[2].utf8)) as? [String: Any] {
                 sessionID = json["session_id"] as? String
             }
             DispatchQueue.main.async { [weak self] in
-                self?.handle(event: event, sessionID: sessionID ?? "pid-\(ppid)", from: ppid)
+                self?.handle(event: event, sessionID: sessionID ?? "pid-\(ppid)", from: ppid, agent: agent)
             }
         }
     }
 
     // MARK: - 状态机
 
-    func handle(event: String, sessionID: String, from pid: pid_t) {
+    func handle(event: String, sessionID: String, from pid: pid_t, agent: String? = nil) {
         let owner = ownerResolver(pid)
-        record("\(event) session=\(sessionID.prefix(8)) pid=\(pid) app=\(owner ?? "-")")
+        record("\(event) agent=\(agent ?? "-") session=\(sessionID.prefix(8)) pid=\(pid) app=\(owner ?? "-")")
         guard let bundleID = owner else { return }
         let before = state(for: bundleID)
         var group = sessions[bundleID] ?? [:]

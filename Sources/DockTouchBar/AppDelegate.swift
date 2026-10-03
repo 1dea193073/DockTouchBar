@@ -71,11 +71,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.applySettings()
         }
         scheduleDisplayCheck()
+        // 调试用：DTB_OPEN_SETTINGS=pairing 之类，启动后直接打开设置窗口的某一页，截图检查界面时用。
+        if let page = ProcessInfo.processInfo.environment["DTB_OPEN_SETTINGS"] {
+            let target: SettingsPage = page == "pairing" ? .pairing : page == "usage" ? .usage : page == "about" ? .about : .settings
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.settingsWindow.show(page: target) }
+        }
     }
 
     /// Vibecoding 版第一次启动时，自动把装在这台电脑上的 AI 助手（Claude Code、Codex……）的 hook 接好，每个助手只做一次；
     /// 之后用户在设置里点“断开”，就不会再自动装回来。已经接好的，每次启动顺手刷新脚本；指向旧脚本的，重新接一次。
     private func connectAgentHooksOnFirstLaunch() {
+        // 转发脚本任何时候都在：配对智能体的提示词要调用它。
+        try? AgentHookInstaller.refreshScript()
         for agent in AgentIntegration.all {
             let flag = agent.id == "claude" ? "agentHooksAutoConnected" : "agentHooksAutoConnected.\(agent.id)"
             if AgentHookInstaller.needsMigration(agent) {

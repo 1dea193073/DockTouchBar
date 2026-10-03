@@ -46,7 +46,7 @@ final class SettingsWindowController {
     }
 }
 
-enum SettingsPage { case settings, usage, about }
+enum SettingsPage { case settings, pairing, usage, about }
 
 private struct SettingsView: View {
     typealias Page = SettingsPage
@@ -101,17 +101,19 @@ private struct SettingsView: View {
         VStack(spacing: 0) {
             Picker("", selection: $page) {
                 Text(L10n.tr("设置", "Settings")).tag(Page.settings)
+                Text(L10n.tr("配对智能体", "Pair agents")).tag(Page.pairing)
                 Text(L10n.tr("使用说明", "How to use")).tag(Page.usage)
                 Text(L10n.tr("关于", "About")).tag(Page.about)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .id(language)
-            .frame(width: 300)
+            .frame(width: 420)
             .padding(.vertical, 14)
 
             switch page {
             case .settings: SettingsForm(onDiagnose: onDiagnose)
+            case .pairing: PairingPage()
             case .usage: usagePage
             case .about: aboutPage
             }
@@ -422,7 +424,6 @@ private struct SettingsForm: View {
     @AppStorage(SettingsKey.yieldFunctionRow) private var yieldFn = true
     @AppStorage(SettingsKey.language) private var language = AppLanguage.system.rawValue
     @AppStorage(SettingsKey.agentStatus) private var agentStatus = true
-    @State private var connected = Set(AgentIntegration.all.filter(AgentHookInstaller.isInstalled).map(\.id))
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hasAccess = AppSwitcher.hasAccessibilityAccess
 
@@ -465,22 +466,8 @@ private struct SettingsForm: View {
 
             Section(L10n.tr("AI 编程助手", "AI coding agents")) {
                 Toggle(L10n.tr("在图标上显示工作状态", "Show working status on icons"), isOn: $agentStatus)
-                ForEach(AgentIntegration.all) { agent in
-                    let isOn = connected.contains(agent.id)
-                    HStack {
-                        Text(isOn ? L10n.tr("\(agent.name)：已连接", "\(agent.name): connected")
-                                  : L10n.tr("\(agent.name)：未连接", "\(agent.name): not connected"))
-                        Spacer()
-                        Button(isOn ? L10n.tr("断开", "Disconnect") : L10n.tr("连接", "Connect")) {
-                            setHooks(agent, installed: !isOn)
-                        }
-                    }
-                    if isOn, let note = agent.afterConnectNote {
-                        Text(note()).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Text(L10n.tr("连接会在助手的 hook 配置里加几条 hook（Claude Code：~/.claude/settings.json，Codex：~/.codex/hooks.json；改之前自动备份，断开时原样删掉）。助手工作时，所在 App 的图标下方出现字符雨，做完变成对号，点一下图标消失。",
-                             "Connecting adds a few hooks to the agent's hook config (Claude Code: ~/.claude/settings.json, Codex: ~/.codex/hooks.json; backed up first, removed again when you disconnect). While an agent works, the icon of the app it runs in shows falling digits; when it finishes, a check mark appears, and a tap on the icon dismisses it."))
+                Text(L10n.tr("智能体怎么接进来、接了哪些，在“配对智能体”页。助手工作时，所在 App 的图标变成像素屏幕加字符雨，做完显示 OK，点一下图标消失。",
+                             "How agents connect, and which ones are, is on the “Pair agents” page. While an agent works, the icon of the app it runs in turns into a pixel screen with falling digits, then shows OK when it's done; a tap on the icon dismisses it."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -537,20 +524,7 @@ private struct SettingsForm: View {
         .onAppear {
             hasAccess = AppSwitcher.hasAccessibilityAccess
             launchAtLogin = SMAppService.mainApp.status == .enabled
-            connected = Set(AgentIntegration.all.filter(AgentHookInstaller.isInstalled).map(\.id))
         }
-    }
-
-    private func setHooks(_ agent: AgentIntegration, installed: Bool) {
-        do {
-            if installed { try AgentHookInstaller.install(agent) } else { try AgentHookInstaller.uninstall(agent) }
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = L10n.tr("无法修改 \(agent.name) 的配置", "Couldn't change the \(agent.name) settings")
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
-        }
-        connected = Set(AgentIntegration.all.filter(AgentHookInstaller.isInstalled).map(\.id))
     }
 
     private func setLaunchAtLogin(_ on: Bool) {
@@ -566,5 +540,151 @@ private struct SettingsForm: View {
         }
         if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
         launchAtLogin = service.status == .enabled
+    }
+}
+
+
+// MARK: - 配对智能体页
+
+/// 三块：说明、给智能体的提示词（复制）、配对列表（内置的 Claude Code / Codex 加上智能体自己登记的）。
+struct PairingPage: View {
+    @State private var connected = Set(AgentIntegration.all.filter(AgentHookInstaller.isInstalled).map(\.id))
+    @State private var copied = false
+    @State private var copiedUnpair: String?
+
+    var body: some View {
+        Form {
+            Section(L10n.tr("说明", "How it works")) {
+                Text(L10n.tr("""
+                    让任何有自主能力的智能体（Claude Code、Codex、WorkBuddy、Antigravity、豆包、千问……）自己接进来：
+                    1. 复制下面的提示词，粘贴给它。
+                    2. 它会自己查它的软件怎么挂 hook（没有 hook 就写进它的长期指令），改配置前先备份，并告诉你每一步做了什么。
+                    3. 它验证通过后会登记在下面的列表里，之后它工作时，所在 App 的图标就会有动画。
+                    如果它的软件要你审核或信任新增的 hook，按它说的点一下就行。
+                    """,
+                    """
+                    Let any capable agent (Claude Code, Codex, WorkBuddy, Antigravity, Doubao, Qwen…) connect itself:
+                    1. Copy the prompt below and paste it to the agent.
+                    2. It looks up how its app does hooks (or, without hooks, writes to its long-term instructions), backs up its config first, and tells you every step.
+                    3. Once it passes verification it registers in the list below; from then on, the icon of its app animates while it works.
+                    If its app asks you to review or trust a new hook, just click as it says.
+                    """))
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+
+            Section(L10n.tr("提示词", "Prompt")) {
+                ScrollView {
+                    Text(AgentPairingPrompt.text())
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                }
+                .frame(height: 150)
+                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                HStack {
+                    Spacer()
+                    Button(copied ? L10n.tr("已复制 ✓", "Copied ✓") : L10n.tr("复制提示词", "Copy prompt")) {
+                        copy(AgentPairingPrompt.text())
+                        copied = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+
+            Section(L10n.tr("配对列表", "Paired agents")) {
+                // 每 3 秒重读一次登记和事件日志，智能体登记或发来事件后这里自己更新。
+                TimelineView(.periodic(from: .now, by: 3)) { _ in
+                    list
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { refreshBuiltIns() }
+    }
+
+    @ViewBuilder private var list: some View {
+        let activity = AgentRegistry.lastActivity()
+        ForEach(AgentIntegration.all) { agent in
+            let isOn = connected.contains(agent.id)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Label(agent.name, systemImage: isOn ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isOn ? Color.green : Color.secondary)
+                    Text(L10n.tr("内置", "Built in")).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(isOn ? L10n.tr("断开", "Disconnect") : L10n.tr("连接", "Connect")) {
+                        setHooks(agent, installed: !isOn)
+                    }
+                }
+                if isOn, let note = agent.afterConnectNote {
+                    Text(note()).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        let paired = AgentRegistry.load()
+        ForEach(paired) { agent in
+            let seen = activity[agent.id]
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Label(agent.name, systemImage: seen != nil ? "checkmark.circle.fill" : "clock")
+                        .foregroundStyle(seen != nil ? Color.green : Color.orange)
+                    if !agent.method.isEmpty { Text(agent.method).font(.caption).foregroundStyle(.secondary) }
+                    Spacer()
+                    Button(copiedUnpair == agent.id ? L10n.tr("已复制 ✓", "Copied ✓") : L10n.tr("复制取消配对提示词", "Copy unpair prompt")) {
+                        copy(AgentPairingPrompt.unpairText(agent))
+                        copiedUnpair = agent.id
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copiedUnpair = nil }
+                    }
+                    Button(L10n.tr("移除", "Remove")) { AgentRegistry.remove(id: agent.id) }
+                }
+                Text(status(seen)).font(.caption).foregroundStyle(.secondary)
+                if !agent.notes.isEmpty { Text(agent.notes).font(.caption).foregroundStyle(.secondary) }
+            }
+        }
+        if paired.isEmpty {
+            Text(L10n.tr("还没有智能体通过提示词配对。把上面的提示词交给一个智能体试试。",
+                         "No agent has paired through the prompt yet. Hand the prompt above to an agent."))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        Text(L10n.tr("“移除”只删除这里的登记，不会改动智能体自己的配置；要还原它的配置，用“复制取消配对提示词”交给它。",
+                     "“Remove” only deletes the registration here and doesn't touch the agent's own config; to undo its config, hand it the unpair prompt."))
+            .font(.caption).foregroundStyle(.secondary)
+    }
+
+    private func status(_ seen: AgentActivity?) -> String {
+        guard let seen else {
+            return L10n.tr("待验证：还没收到它发来的事件，让它跑一个任务试试", "Pending: no events received yet — let it run a task")
+        }
+        let ago = RelativeDateTimeFormatter().localizedString(for: seen.date, relativeTo: Date())
+        var app = ""
+        if let id = seen.bundleID, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
+            app = " · " + FileManager.default.displayName(atPath: url.path)
+        } else if seen.bundleID == nil {
+            app = " · " + L10n.tr("没找到所在 App，图标不会有动画", "host app not found — no icon animation")
+        }
+        return L10n.tr("已验证：\(ago) 收到事件\(app)", "Verified: event received \(ago)\(app)")
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func refreshBuiltIns() {
+        connected = Set(AgentIntegration.all.filter(AgentHookInstaller.isInstalled).map(\.id))
+    }
+
+    private func setHooks(_ agent: AgentIntegration, installed: Bool) {
+        do {
+            if installed { try AgentHookInstaller.install(agent) } else { try AgentHookInstaller.uninstall(agent) }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = L10n.tr("无法修改 \(agent.name) 的配置", "Couldn't change the \(agent.name) settings")
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+        refreshBuiltIns()
     }
 }

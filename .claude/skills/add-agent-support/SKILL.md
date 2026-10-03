@@ -14,7 +14,12 @@ description: 给 DockTouchBar Vibe 增加对一个新的 AI 编程助手（Claud
 3. `AgentMonitor`（`AgentStatus.swift`）从父进程号一路往上找到第一个有 Dock 图标的 App（终端、VS Code、ChatGPT/Codex 桌面版……），按 App 汇总状态：`idle` / `working` / `done`。
 4. `DockModel` 把状态写进 `DockTile.agentState`，`DockTileView` 把它交给 `AgentOverlayLayer`（`AgentOverlay.swift`）画动画。**动画和状态机跟具体助手无关，接新助手不用改它们。**
 
-## 接入一个新助手：步骤
+## 两条路
+
+1. **用户自己配对（首选，不用改代码）**：设置 →「配对智能体」页，把提示词（`AgentPairingPrompt.swift`）复制给任何有自主能力的智能体，它自己查 hook、改配置、验证、登记到 `agents/<id>.json`。调用方式 `agent-hook.sh <事件> <id> <会话id> < /dev/null`。配对列表按 `events.log` 里的 `agent=<id>` 判断“已验证”。新增智能体不用动代码；要改的是提示词的措辞（它在真实智能体上跑得不好时）。
+2. **内置接入（下面的步骤）**：只给最主流、值得一键连接的助手做（目前 Claude Code、Codex）。
+
+## 接入一个新助手（内置）：步骤
 
 1. **查它的 hook 机制**（先查官方文档，再用本机实测）：配置文件路径和格式、有哪些事件、stdin 里有没有 `session_id`、`Stop` 是每轮触发还是整个会话结束才触发、有没有“被打断”事件、**hook 是否要用户先审核/信任**（Codex 要）、桌面版是否也读同一个配置。不要凭记忆写，查完把结论写进下面第 3 步的注释。
 2. **本机实测 hook 会不会触发**：在临时目录写一个只记录 stdin 的脚本（见 `docs/` 里的做法），跑一次最小的助手任务，看事件和字段。注意：`codex exec` 要 `< /dev/null`，否则会卡在等 stdin；会占用用户的额度，只跑一句话的任务。
@@ -39,6 +44,7 @@ description: 给 DockTouchBar Vibe 增加对一个新的 AI 编程助手（Claud
 ```bash
 swift build 2>&1 | grep -E "error|Build"
 bash tools/preview-agent.sh build/agent-preview.png   # 实时窗口截图，已放大，用 Read 打开看
+bash tools/render-settings.sh build/pairing-page.png  # 离屏渲染“配对智能体”页（Stage Manager 会把设置窗口收起来，别截真窗口）
 ```
 
 看图要点：原图标认不认得出、字符雨密度和亮度、`OK` 在绿色/白色图标上的对比度、边框是否贴合圆角。静态截图看不出动画流畅度和光标闪烁，要说清楚“没看到动画”，让用户在真 Touch Bar 上确认。

@@ -68,10 +68,6 @@ enum AgentHookInstaller {
         }
         root["hooks"] = hooks.isEmpty ? nil : hooks
         try save(root, agent)
-        // 所有助手都断开之后，脚本也不用留着。
-        if !AgentIntegration.all.contains(where: { isInstalled($0) || needsMigration($0) }) {
-            try? FileManager.default.removeItem(at: scriptURL)
-        }
     }
 
     /// 已连接时，把脚本重写成当前版本的内容（不动配置文件）。
@@ -124,11 +120,18 @@ enum AgentHookInstaller {
     private static func writeScript() throws {
         let script = """
         #!/bin/bash
-        # \(AppInfo.name): forwards AI coding agent hook events to the app. Does nothing if the app isn't running.
+        # \(AppInfo.name): forwards AI agent events to the app. Does nothing (and never fails) if the app isn't running.
+        # Usage: agent-hook.sh <Event> [agent-id] [session-id] < /dev/null
+        #   Event: UserPromptSubmit | PostToolUse | Stop | Interrupt | SessionEnd
+        # Agents with their own hooks pipe the hook JSON on stdin; agents that call this by hand pass a session-id instead.
         SOCK="$HOME/Library/Application Support/\(AppInfo.fileName)/agent.sock"
         [ -S "$SOCK" ] || exit 0
-        PAYLOAD="$(/bin/cat | /usr/bin/tr -d '\\n\\r')"
-        printf '%s\\t%s\\t%s\\n' "$1" "$PPID" "$PAYLOAD" | /usr/bin/nc -U -w 1 "$SOCK" >/dev/null 2>&1
+        EVENT="$1"
+        case "$2" in ""|*[!A-Za-z0-9._-]*) ;; *) EVENT="$1|$2" ;; esac
+        PAYLOAD=""
+        [ -t 0 ] || PAYLOAD="$(/bin/cat | /usr/bin/tr -d '\\n\\r')"
+        case "$3" in ""|*[!A-Za-z0-9._-]*) ;; *) [ -n "$PAYLOAD" ] || PAYLOAD="{\\"session_id\\":\\"$3\\"}" ;; esac
+        printf '%s\\t%s\\t%s\\n' "$EVENT" "$PPID" "$PAYLOAD" | /usr/bin/nc -U -w 1 "$SOCK" >/dev/null 2>&1
         exit 0
         """
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true,

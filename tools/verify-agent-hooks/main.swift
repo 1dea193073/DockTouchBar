@@ -77,7 +77,7 @@ for agent in AgentIntegration.all {
           "\(name): 迁移后只剩新脚本")
     try AgentHookInstaller.uninstall(agent)
 }
-check(!fm.fileExists(atPath: AgentHookInstaller.scriptURL.path), "全部断开后转发脚本也删了")
+check(fm.fileExists(atPath: AgentHookInstaller.scriptURL.path), "全部断开后转发脚本还在（配对提示词要调用它）")
 
 // 5. 状态机。
 let monitor = AgentMonitor()
@@ -112,6 +112,44 @@ monitor.isEnabled = false
 send("UserPromptSubmit", "f", 100)
 check(monitor.state(for: "app.one") == .idle, "状态: 总开关关掉后一律显示空闲")
 check(changes > 0, "状态: 变化会通知刷新")
+
+// 6. 配对智能体：登记文件、事件日志、提示词。
+let agentsDir = AgentRegistry.directory
+try fm.createDirectory(at: agentsDir, withIntermediateDirectories: true)
+try #"{"id":"workbuddy","name":"WorkBuddy","method":"hook","files":["/tmp/a.json"],"notes":"ok"}"#
+    .write(to: agentsDir.appendingPathComponent("workbuddy.json"), atomically: true, encoding: .utf8)
+try #"{"id":"other","name":"Mismatch"}"#.write(to: agentsDir.appendingPathComponent("wrongname.json"), atomically: true, encoding: .utf8)
+try #"{"id":"../evil","name":"Evil"}"#.write(to: agentsDir.appendingPathComponent("evil.json"), atomically: true, encoding: .utf8)
+try "{ broken".write(to: agentsDir.appendingPathComponent("broken.json"), atomically: true, encoding: .utf8)
+try #"{"id":"nameless"}"#.write(to: agentsDir.appendingPathComponent("nameless.json"), atomically: true, encoding: .utf8)
+let registered = AgentRegistry.load()
+check(registered.map(\.id) == ["nameless", "workbuddy"] || registered.map(\.id).sorted() == ["nameless", "workbuddy"], "登记: 只读到合法的两份（坏文件、id 和文件名不一致、路径穿越都被跳过）")
+check(registered.first { $0.id == "workbuddy" }?.files == ["/tmp/a.json"], "登记: files 读出来了")
+check(registered.first { $0.id == "nameless" }?.name == "nameless", "登记: 没有 name 时用 id")
+check(AgentRegistry.isValidID("work-buddy2") && !AgentRegistry.isValidID("Work") && !AgentRegistry.isValidID("a/b") && !AgentRegistry.isValidID(""), "登记: id 的合法性判断")
+AgentRegistry.remove(id: "workbuddy")
+check(!fm.fileExists(atPath: agentsDir.appendingPathComponent("workbuddy.json").path), "登记: 移除只删登记文件")
+
+// 事件日志 → 最近活动
+let monitor2 = AgentMonitor()
+monitor2.ownerResolver = { _ in "app.host" }
+monitor2.handle(event: "UserPromptSubmit", sessionID: "s1", from: 1, agent: "workbuddy")
+monitor2.handle(event: "Stop", sessionID: "s1", from: 1, agent: "workbuddy")
+monitor2.handle(event: "Stop", sessionID: "s9", from: 1)
+let activity = AgentRegistry.lastActivity()
+check(activity["workbuddy"]?.event == "Stop" && activity["workbuddy"]?.bundleID == "app.host", "活动: 日志里按 agent 取最近一次事件和所在 App")
+check(activity["-"] == nil && activity.count == 1, "活动: 没带 agent id 的事件不进配对列表")
+let unresolved = AgentMonitor()
+unresolved.ownerResolver = { _ in nil }
+unresolved.handle(event: "Stop", sessionID: "s2", from: 1, agent: "lost")
+check(AgentRegistry.lastActivity()["lost"]?.bundleID == nil, "活动: 找不到所在 App 时 bundleID 为空，列表会提示")
+
+// 提示词里有真实路径和关键约束；脚本能处理参数。
+let prompt = AgentPairingPrompt.text()
+check(prompt.contains(AgentHookInstaller.scriptURL.path) && prompt.contains(AgentRegistry.logURL.path) && prompt.contains(agentsDir.path), "提示词: 含脚本、日志、登记目录的真实路径")
+check(prompt.contains("/dev/null") && prompt.contains("UserPromptSubmit") && prompt.contains("Interrupt"), "提示词: 含用法和事件")
+let script = try String(contentsOf: AgentHookInstaller.scriptURL, encoding: .utf8)
+check(script.contains("[ -t 0 ]") && script.contains("$EVENT"), "脚本: 终端上不会卡住读 stdin、支持 agent id")
 
 print(failures == 0 ? "RESULT failures=0" : "RESULT failures=\(failures)")
 exit(failures == 0 ? 0 : 1)
