@@ -12,6 +12,7 @@
   Tap to switch · double-tap to minimize · long-press to quit
   <br>
   <a href="https://github.com/hooosberg/DockTouchBar/releases/latest">Download</a> ·
+  <a href="https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0">Download Vibe (AI agent status)</a> ·
   <a href="https://hooosberg.com/apps/docktouchbar">Product page</a> ·
   <a href="https://hooosberg.com/apps/docktouchbar/diary">Build diary</a>
 </p>
@@ -39,6 +40,16 @@
   <img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
+## Two editions
+
+| | **DockTouchBar** (Standard) | **DockTouchBar Vibe** |
+|---|---|---|
+| For | Everyone with a Touch Bar Mac | People who code with AI agents (Claude Code, Codex, Qoder, WorkBuddy, Antigravity…) |
+| What it is | Your Dock on the Touch Bar: tap, double-tap, long-press | Everything in Standard, plus a live status on the icon of the app your AI agent runs in: a pixel-art screen with falling digits while it works, **OK** when it's done |
+| Download | [**Download Standard**](https://github.com/hooosberg/DockTouchBar/releases/latest) | [**Download Vibe 1.0**](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0) |
+
+**Not sure? Start with Standard.** Pick **Vibe** if you use AI coding agents on this Mac and want to see, right on the Touch Bar, which one is busy and which one has just finished. Vibe is a separate app with its own name, settings and updates, and it already includes the whole Dock, so you only need one of the two. They both take the Touch Bar, so run one at a time (Vibe tells you if the Standard one is running). Both come from this repository: Standard is the `main` branch, Vibe is the `vibecoding` branch.
+
 ![DockTouchBar on the Touch Bar](assets/touchbar-idle.gif)
 *Idle state: apps aligned to bottom with top-right active badge dot (red for frontmost app); pixel-art coffee cup with live rising steam.*
 
@@ -59,6 +70,30 @@ Engineered for 24/7 background residency using event-driven app and window updat
 | **Render Latency** | **~2.3 ms / frame** | Native CoreAnimation / AppKit rendering pipeline for instant touch responsiveness |
 
 **If DockTouchBar is useful to you, a ⭐ Star on GitHub is the best way to say thanks.**
+
+## DockTouchBar Vibe: see your AI agents work
+
+![AI coding agents on the Touch Bar: idle, working, done](assets/vibe-agents.gif)
+*Vibe: the icon of the app an agent runs in turns into a little pixel-art screen with falling digits while the agent works, then shows **OK** when it's done. Tap the icon to dismiss it. The five icons here are Claude Code, Codex, Qoder, WorkBuddy and Antigravity.*
+
+- **No agent-specific plugins.** You don't wait for us to support your tool: copy one prompt, paste it to your agent, and it connects itself.
+- The animation is drawn by the app, from the real icon of whatever app the agent runs in, so it works for tools we have never seen. Nothing is pre-made per agent.
+- **Pixel-art look:** the icon is redrawn as sharp 8-bit pixel art with its own small palette, framed like an old CRT screen. The frame, the falling digits and **OK** all share the same pixel grid.
+
+**Pair an agent in three steps**
+
+1. Open **Settings → Pair agents** and press **Copy prompt**.
+2. Paste it to your agent (Claude Code, Codex, Qoder, WorkBuddy, Antigravity, or any agent that can run commands on your Mac). It looks up how its own app does hooks (or, if it has none, writes a rule into its long-term instructions), backs up its config first, tells you every step, then verifies and registers itself.
+3. Once it passes verification it appears in the list with **Verified**. From then on, its icon animates while it works. **Try it** plays the animation without waiting for a task, and **Copy unpair prompt** hands the agent a prompt that undoes its own changes.
+
+![Pair agents page](assets/vibe-pairing-en.png)
+
+What to know:
+
+- **The app never edits another tool's configuration.** The agent does that, on your Mac, after you paste the prompt, and it is told to back up first, never touch your existing hooks, and show you what it did. Nothing leaves your Mac for this feature.
+- **Needs an agent that can run a command on your Mac and runs in a desktop app** (a terminal or editor works too). Web-only chat tools can't. If the agent can't reach the app, it is told to say so instead of claiming success.
+- **Some agents ask you to trust the new hook once.** Codex, for example: ChatGPT Settings → Hooks → Trust all. The agent will tell you where to click.
+- Tested on the author's Mac with Claude Code, Codex, Qoder, WorkBuddy and Antigravity. Other agents should work the same way, but have not been tried.
 
 ## Why
 
@@ -129,7 +164,7 @@ Things to know:
 
 ## Install
 
-1. Download `DockTouchBar-<version>.dmg` from [Releases](https://github.com/hooosberg/DockTouchBar/releases/latest).
+1. Download `DockTouchBar-<version>.dmg` from [Releases](https://github.com/hooosberg/DockTouchBar/releases/latest). (For **Vibe**, download `DockTouchBarVibe-<version>.dmg` from its [release](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0) and drag **DockTouchBar Vibe** onto Applications; see [Two editions](#two-editions).)
 2. Open it and drag **DockTouchBar** onto **Applications**, then launch it. A Dock icon appears in the menu bar and on the Touch Bar.
 
 > The DMG is signed with a Developer ID certificate and **notarized by Apple**, so it opens like any other app. macOS will only ask you to confirm the first launch. Prefer to compile it yourself? See [Build from source](#build-from-source).

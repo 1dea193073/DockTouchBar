@@ -31,6 +31,8 @@
   <a href="README.tr.md">Türkçe</a>
 </p>
 
+> **Due edizioni:** DockTouchBar standard e DockTouchBar Vibe, che mostra in tempo reale lo stato dei tuoi agenti di programmazione IA sulle icone. Differenze e download: [English README](README.md#two-editions).
+
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
   <img src="https://img.shields.io/badge/Apple%20silicon-tested-2e7d32.svg" alt="Apple silicon: tested">

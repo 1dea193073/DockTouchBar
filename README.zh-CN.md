@@ -12,6 +12,7 @@
   单击切换 · 双击最小化 · 长按退出
   <br>
   <a href="https://github.com/hooosberg/DockTouchBar/releases/latest">下载</a> ·
+  <a href="https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0">下载 Vibe（AI 智能体状态）</a> ·
   <a href="https://hooosberg.com/apps/docktouchbar">产品页</a> ·
   <a href="https://hooosberg.com/apps/docktouchbar/diary">开发日记</a>
 </p>
@@ -39,6 +40,16 @@
   <img src="https://img.shields.io/badge/许可证-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
+## 两个版本
+
+| | **DockTouchBar**（纯净版） | **DockTouchBar Vibe**（Vibecoding 版） |
+|---|---|---|
+| 适合 | 所有有 Touch Bar 的 Mac 用户 | 用 AI 编程智能体的人（Claude Code、Codex、Qoder、WorkBuddy、Antigravity……） |
+| 是什么 | 把 Dock 放到 Touch Bar 上：单击、双击、长按 | 包含纯净版的全部功能，另外在智能体所在 App 的图标上显示实时状态：工作时是像素风屏幕加字符雨，做完显示 **OK** |
+| 下载 | [**下载纯净版**](https://github.com/hooosberg/DockTouchBar/releases/latest) | [**下载 Vibe 1.0**](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0) |
+
+**拿不准就先用纯净版。** 如果你在这台 Mac 上用 AI 编程智能体，想直接在 Touch Bar 上看到哪个正在忙、哪个刚做完，就选 **Vibe**。Vibe 是一个独立的 App（有自己的名字、设置和更新），已经包含完整的 Dock，所以两个只需要装一个。它们都会占用 Touch Bar，一次只运行一个（如果纯净版正在运行，Vibe 会提示你）。两个版本都在这个仓库里：纯净版是 `main` 分支，Vibe 是 `vibecoding` 分支。
+
 ![Touch Bar 上的 DockTouchBar](assets/touchbar-idle.gif)
 *平时工作状态：图标底部贴边、右上角激活状态标点（当前前台应用红色小圆点），最右侧像素咖啡杯白烟动态飘动*
 
@@ -59,6 +70,30 @@ DockTouchBar 的应用和窗口更新以事件驱动为主。下表是早期版�
 | **渲染性能** | **单帧约 2.3 ms** | 原生 CoreAnimation / AppKit 渲染，触控灵敏跟手 |
 
 **如果 DockTouchBar 对你有用，去 GitHub 点个 ⭐ Star，就是最好的支持。**
+
+## DockTouchBar Vibe：看见你的 AI 智能体在工作
+
+![Touch Bar 上的 AI 编程智能体：空闲、工作中、做完](assets/vibe-agents.gif)
+*Vibe：智能体所在 App 的图标，在它工作时变成一块像素风小屏幕、字符雨往下掉，做完后显示 **OK**，点一下图标就消失。图里五个图标依次是 Claude Code、Codex、Qoder、WorkBuddy、Antigravity。*
+
+- **不用等我们逐个适配。** 复制一段提示词，粘贴给你的智能体，它自己接进来。
+- 动画由 App 自己画，用的是智能体所在 App 的真实图标，所以没见过的工具也能用，没有为某个智能体预先做好的素材。
+- **像素画风格：** 图标被重画成锐利的 8-bit 像素画，每个图标有自己的小调色板，外面套一个老式 CRT 屏幕边框。边框、字符雨和 **OK** 用的是同一个像素格。
+
+**三步配对一个智能体**
+
+1. 打开 **设置 → 配对智能体**，点 **复制提示词**。
+2. 把它粘贴给你的智能体（Claude Code、Codex、Qoder、WorkBuddy、Antigravity，或任何能在你的 Mac 上执行命令的智能体）。它会自己查它的软件怎么挂 hook（没有就写进它的长期指令），改配置前先备份，告诉你每一步，然后验证并登记。
+3. 验证通过后它会出现在列表里，显示 **已验证**，之后它工作时图标就会有动画。**试一下** 不用等任务就能播放动画，**复制取消配对提示词** 会给智能体一段提示词，让它自己撤销改动。
+
+![配对智能体页面](assets/vibe-pairing-zh.png)
+
+需要知道的：
+
+- **App 从不修改其他工具的配置。** 是你把提示词粘贴给智能体之后，由它在你的 Mac 上改；提示词要求它先备份、不碰你已有的 hook、并告诉你做了什么。这个功能不会把任何数据发出 Mac。
+- **需要智能体能在你的 Mac 上执行命令，并且跑在一个桌面 App 里**（终端或编辑器也行）。纯网页聊天工具不行。如果智能体连不上 App，提示词要求它如实说明，不能说成功。
+- **有些智能体会请你信任一次新的 hook。** 比如 Codex：ChatGPT 设置 → Hooks → 全部信任，智能体会告诉你去哪里点。
+- 在作者的 Mac 上用 Claude Code、Codex、Qoder、WorkBuddy、Antigravity 测试过。其他智能体原理相同，但没有试过。
 
 ## 为什么做
 
@@ -129,7 +164,7 @@ App 已经在运行时，再从「应用程序」打开它，会直接弹出这�
 
 ## 安装
 
-1. 到 [Releases](https://github.com/hooosberg/DockTouchBar/releases/latest) 下载 `DockTouchBar-<版本>.dmg`。
+1. 到 [Releases](https://github.com/hooosberg/DockTouchBar/releases/latest) 下载 `DockTouchBar-<版本>.dmg`。（要用 **Vibe**，到它的[发布页](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0)下载 `DockTouchBarVibe-<版本>.dmg`，把 **DockTouchBar Vibe** 拖进「应用程序」；区别见[两个版本](#两个版本)。）
 2. 打开后把 **DockTouchBar** 拖到 **Applications**，再启动它。菜单栏和 Touch Bar 上会出现图标。
 
 > DMG 用 Developer ID 证书签名，并且**已通过 Apple 公证**，所以和普通 App 一样可以直接打开，第一次启动时系统只会让你确认一下。想自己编译的话，见[从源码编译](#从源码编译)。
