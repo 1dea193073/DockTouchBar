@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
+  <img src="../assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
 </p>
 
 <h1 align="center">DockTouchBar</h1>
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> ·
+  <a href="../README.md">English</a> ·
   <a href="README.zh-CN.md">简体中文</a> ·
   <a href="README.zh-Hant.md">繁體中文</a> ·
   <a href="README.ja.md">日本語</a> ·
@@ -31,7 +31,7 @@
   <a href="README.tr.md">Türkçe</a>
 </p>
 
-> **Dos ediciones:** DockTouchBar estándar y DockTouchBar Vibe, que muestra en directo el estado de tus agentes de programación con IA en sus iconos. Diferencias y descargas: [English README](README.md#two-editions).
+> **Dos ediciones:** DockTouchBar estándar y DockTouchBar Vibe, que muestra en directo el estado de tus agentes de programación con IA en sus iconos. Diferencias y descargas: [English README](../README.md#two-editions).
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
@@ -41,10 +41,10 @@
   <img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
-![DockTouchBar en la Touch Bar](assets/touchbar-idle.gif)
+![DockTouchBar en la Touch Bar](../assets/touchbar-idle.gif)
 *Estado inactivo: aplicaciones alineadas en la parte inferior con punto de insignia activo en la esquina superior derecha (rojo para la aplicación frontal); taza de café de arte de píxeles con vapor animado en vivo.*
 
-![Mantén presionado para cerrar: animación de cuatro estaciones](assets/touchbar-seasons.gif)
+![Mantén presionado para cerrar: animación de cuatro estaciones](../assets/touchbar-seasons.gif)
 *Mantén presionado para cerrar: escenas de cuenta regresiva de arte de píxeles con desplazamiento lateral en cuatro estaciones (perro corriendo en primavera / barco navegando en verano / zorro en bosque de otoño / trineo en invierno). Suelta antes para cancelar, con explosión de temporada final.*
 
 ### ⚡ Energía y Rendimiento Nativo (Medidas de Versiones Anteriores)
@@ -184,7 +184,7 @@ Después de una gran actualización de macOS, ejecuta `swift tools/probe-private
 
 ## Licencia
 
-[PolyForm Noncommercial License 1.0.0](LICENSE) — libre para usar, copiar, modificar y compartir para **propósitos personales y otros no comerciales**. **El uso comercial no está cubierto** y necesita una licencia separada del autor; por favor comunícate a través de [hooosberg.com](https://hooosberg.com/).
+[PolyForm Noncommercial License 1.0.0](../LICENSE) — libre para usar, copiar, modificar y compartir para **propósitos personales y otros no comerciales**. **El uso comercial no está cubierto** y necesita una licencia separada del autor; por favor comunícate a través de [hooosberg.com](https://hooosberg.com/).
 
 Esta es una licencia de código disponible, no una licencia de código abierto aprobada por OSI. Aviso requerido: Copyright © 2026 hooosberg.
 

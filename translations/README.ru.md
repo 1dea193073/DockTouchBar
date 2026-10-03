@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
+  <img src="../assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
 </p>
 
 <h1 align="center">DockTouchBar</h1>
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> ·
+  <a href="../README.md">English</a> ·
   <a href="README.zh-CN.md">简体中文</a> ·
   <a href="README.zh-Hant.md">繁體中文</a> ·
   <a href="README.ja.md">日本語</a> ·
@@ -31,7 +31,7 @@
   <a href="README.tr.md">Türkçe</a>
 </p>
 
-> **Две версии:** обычный DockTouchBar и DockTouchBar Vibe, который показывает на значках состояние ваших ИИ-агентов для программирования в реальном времени. Различия и загрузка: [English README](README.md#two-editions).
+> **Две версии:** обычный DockTouchBar и DockTouchBar Vibe, который показывает на значках состояние ваших ИИ-агентов для программирования в реальном времени. Различия и загрузка: [English README](../README.md#two-editions).
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
@@ -41,10 +41,10 @@
   <img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
-![DockTouchBar на Touch Bar](assets/touchbar-idle.gif)
+![DockTouchBar на Touch Bar](../assets/touchbar-idle.gif)
 *Состояние ожидания: приложения выравнены по нижнему краю с активным значком в верхнем правом углу (красная точка для самого активного приложения); пиксельный рисунок кофейной чашки с живым поднимающимся паром.*
 
-![Долгое нажатие для выхода: анимация четырёх сезонов](assets/touchbar-seasons.gif)
+![Долгое нажатие для выхода: анимация четырёх сезонов](../assets/touchbar-seasons.gif)
 *Долгое нажатие для выхода: пиксельная анимация обратного отсчёта с боковой прокруткой через четыре сезона (весенний бегущий пёс / летний парусник / осенняя лиса в лесу / зимний санный заезд). Отпустите раньше для отмены, с сезонным финальным взрывом.*
 
 ### ⚡ Энергоэффективность и производительность (Измерения из предыдущих выпусков)
@@ -184,7 +184,7 @@ assets/                 Изображения README
 
 ## Лицензия
 
-[PolyForm Noncommercial License 1.0.0](LICENSE) — свободно использовать, копировать, изменять и делиться для **личных и других некоммерческих целей**. **Коммерческое использование не охватывается** и требует отдельной лицензии от автора; пожалуйста, свяжитесь через [hooosberg.com](https://hooosberg.com/).
+[PolyForm Noncommercial License 1.0.0](../LICENSE) — свободно использовать, копировать, изменять и делиться для **личных и других некоммерческих целей**. **Коммерческое использование не охватывается** и требует отдельной лицензии от автора; пожалуйста, свяжитесь через [hooosberg.com](https://hooosberg.com/).
 
 Это лицензия с открытым исходным кодом, а не лицензия, одобренная OSI. Требуемое уведомление: Copyright © 2026 hooosberg.
 

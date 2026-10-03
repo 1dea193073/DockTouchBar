@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
+  <img src="../assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
 </p>
 
 <h1 align="center">DockTouchBar</h1>
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> ·
+  <a href="../README.md">English</a> ·
   <a href="README.zh-CN.md">简体中文</a> ·
   <a href="README.zh-Hant.md">繁體中文</a> ·
   <a href="README.ja.md">日本語</a> ·
@@ -31,7 +31,7 @@
   <a href="README.tr.md">Türkçe</a>
 </p>
 
-> **Duas edições:** o DockTouchBar padrão e o DockTouchBar Vibe, que mostra em tempo real o estado dos seus agentes de programação com IA nos ícones. Diferenças e downloads: [English README](README.md#two-editions).
+> **Duas edições:** o DockTouchBar padrão e o DockTouchBar Vibe, que mostra em tempo real o estado dos seus agentes de programação com IA nos ícones. Diferenças e downloads: [English README](../README.md#two-editions).
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
@@ -41,10 +41,10 @@
   <img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
-![DockTouchBar na Touch Bar](assets/touchbar-idle.gif)
+![DockTouchBar na Touch Bar](../assets/touchbar-idle.gif)
 *Estado ocioso: apps alinhados na parte inferior com ponto de badge ativo no canto superior direito (vermelho para o app em primeiro plano); xícara de café em pixel-art com vapor ao vivo em ascensão.*
 
-![Pressão prolongada para sair: animação das quatro estações](assets/touchbar-seasons.gif)
+![Pressão prolongada para sair: animação das quatro estações](../assets/touchbar-seasons.gif)
 *Pressão prolongada para sair: cenas de contagem regressiva em pixel-art de rolagem lateral em quatro estações (cachorro correndo na primavera / navio à vela no verão / raposa na floresta de outono / passeio de trenó no inverno). Solte cedo para cancelar, com explosão final sazonal.*
 
 ### ⚡ Desempenho Energético e Nativo (Medições de Versões Anteriores)
@@ -184,7 +184,7 @@ Após uma grande atualização do macOS, execute `swift tools/probe-private-api.
 
 ## Licença
 
-[PolyForm Noncommercial License 1.0.0](LICENSE) — gratuito para usar, copiar, modificar e compartilhar para **fins pessoais e outros não comerciais**. **Uso comercial não está coberto** e precisa de uma licença separada do autor; por favor, entre em contato via [hooosberg.com](https://hooosberg.com/).
+[PolyForm Noncommercial License 1.0.0](../LICENSE) — gratuito para usar, copiar, modificar e compartilhar para **fins pessoais e outros não comerciais**. **Uso comercial não está coberto** e precisa de uma licença separada do autor; por favor, entre em contato via [hooosberg.com](https://hooosberg.com/).
 
 Esta é uma licença de código aberto, não uma licença de código aberto aprovada pela OSI. Aviso obrigatório: Copyright © 2026 hooosberg.
 

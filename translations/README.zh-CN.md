@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
+  <img src="../assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
 </p>
 
 <h1 align="center">DockTouchBar</h1>
@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> ·
+  <a href="../README.md">English</a> ·
   <a href="README.zh-CN.md">简体中文</a> ·
   <a href="README.zh-Hant.md">繁體中文</a> ·
   <a href="README.ja.md">日本語</a> ·
@@ -63,10 +63,10 @@
 
 **拿不准就先用纯净版。** 如果你在这台 Mac 上用 AI 编程智能体，想直接在 Touch Bar 上看到哪个正在忙、哪个刚做完，就选 **Vibe**。Vibe 是一个独立的 App（有自己的名字、设置和更新），已经包含完整的 Dock，所以两个只需要装一个。它们都会占用 Touch Bar，一次只运行一个（如果纯净版正在运行，Vibe 会提示你）。两个版本都在这个仓库里：纯净版是 `main` 分支，Vibe 是 `vibecoding` 分支。
 
-![Touch Bar 上的 DockTouchBar](assets/touchbar-idle.gif)
+![Touch Bar 上的 DockTouchBar](../assets/touchbar-idle.gif)
 *平时工作状态：图标底部贴边、右上角激活状态标点（当前前台应用红色小圆点），最右侧像素咖啡杯白烟动态飘动*
 
-![长按退出：四季主题关闭效果](assets/touchbar-seasons.gif)
+![长按退出：四季主题关闭效果](../assets/touchbar-seasons.gif)
 *长按退出演示：像素画四季长按倒计时动画（春·奔跑小狗 / 夏·帆船冲浪 / 秋·林间小狐 / 冬·雪橇滑雪），中途松手即取消，松手后还有收尾消散风暴*
 
 ### ⚡ 能耗与性能（早期版本实机测量）
@@ -86,7 +86,7 @@ DockTouchBar 的应用和窗口更新以事件驱动为主。下表是早期版�
 
 ## DockTouchBar Vibe：看见你的 AI 智能体在工作
 
-![Touch Bar 上的 AI 编程智能体：空闲、工作中、做完](assets/vibe-agents.gif)
+![Touch Bar 上的 AI 编程智能体：空闲、工作中、做完](../assets/vibe-agents.gif)
 *Vibe：智能体所在 App 的图标，在它工作时变成一块像素风小屏幕、字符雨往下掉，做完后显示 **OK**，点一下图标就消失。图里五个图标依次是 Claude Code、Codex、Qoder、WorkBuddy、Antigravity。*
 
 - **不用等我们逐个适配。** 复制一段提示词，粘贴给你的智能体，它自己接进来。
@@ -99,7 +99,7 @@ DockTouchBar 的应用和窗口更新以事件驱动为主。下表是早期版�
 2. 把它粘贴给你的智能体（任何能在你的 Mac 上执行命令的智能体）。它会先自检，再用最合适的方式接进来：用它自己的 hook，没有 hook 就写一条规则进它的长期指令；Vibe 能自己看到的 App 则什么都不用改。改配置前先备份，告诉你每一步。
 3. 验证是否通过由 Vibe 自己判定（智能体不能给自己打“通过”），通过后它才会出现在列表里，显示 **已验证**，之后它工作时图标就会有动画。**试一下** 不用等任务就能播放动画，**复制取消配对提示词** 会给智能体一段提示词，让它自己撤销改动。
 
-![配对智能体页面](assets/vibe-pairing-zh.png)
+![配对智能体页面](../assets/vibe-pairing-zh.png)
 
 需要知道的：
 
@@ -246,7 +246,7 @@ macOS 大版本更新后，运行 `swift tools/probe-private-api.swift` 可以�
 
 ## 许可证
 
-[PolyForm Noncommercial License 1.0.0](LICENSE)：**个人使用及其他非商业用途**可以免费使用、复制、修改和分享。**商业使用不在授权范围内**，需要向作者另行取得授权，请通过 [hooosberg.com](https://hooosberg.com/) 联系。
+[PolyForm Noncommercial License 1.0.0](../LICENSE)：**个人使用及其他非商业用途**可以免费使用、复制、修改和分享。**商业使用不在授权范围内**，需要向作者另行取得授权，请通过 [hooosberg.com](https://hooosberg.com/) 联系。
 
 这是“源码可见”许可证，不是 OSI 认可的开源许可证。版权声明：Copyright © 2026 hooosberg。
 

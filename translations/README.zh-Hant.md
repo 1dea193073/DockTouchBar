@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
+  <img src="../assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
 </p>
 
 <h1 align="center">DockTouchBar</h1>
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> ·
+  <a href="../README.md">English</a> ·
   <a href="README.zh-CN.md">簡體中文</a> ·
   <a href="README.zh-Hant.md">繁體中文</a> ·
   <a href="README.ja.md">日本語</a> ·
@@ -31,7 +31,7 @@
   <a href="README.tr.md">Türkçe</a>
 </p>
 
-> **兩個版本：** 標準版 DockTouchBar，以及 DockTouchBar Vibe（在圖示上顯示 AI 編程智慧體的即時狀態）。詳情與下載請見[簡體中文說明](README.zh-CN.md#两个版本)或[English README](README.md#two-editions)。
+> **兩個版本：** 標準版 DockTouchBar，以及 DockTouchBar Vibe（在圖示上顯示 AI 編程智慧體的即時狀態）。詳情與下載請見[簡體中文說明](README.zh-CN.md#两个版本)或[English README](../README.md#two-editions)。
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
@@ -41,10 +41,10 @@
   <img src="https://img.shields.io/badge/授權-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
-![觸控列上的 DockTouchBar](assets/touchbar-idle.gif)
+![觸控列上的 DockTouchBar](../assets/touchbar-idle.gif)
 *待機狀態：應用程式對齊底部，右上角有正在執行應用程式的活動徽章點（紅色表示最前面的應用程式）；像素風格咖啡杯，蒸汽會即時飄動。*
 
-![長按關閉：四季動畫](assets/touchbar-seasons.gif)
+![長按關閉：四季動畫](../assets/touchbar-seasons.gif)
 *長按關閉：像素風格四季橫向滾動倒數計時場景（春季奔跑的狗 / 夏季揚帆的船 / 秋季森林裡的狐狸 / 冬季雪橇滑行）。提早放開可取消，放開後還有季節結尾爆發特效。*
 
 ### ⚡ 能耗與原生效能（早期版本實測測量）
@@ -184,7 +184,7 @@ assets/                 README 圖像
 
 ## 授權
 
-[PolyForm Noncommercial License 1.0.0](LICENSE) — 可自由用於**個人和其他非商業用途**的使用、複製、修改和分享。**商業使用不在授權範圍內**，需要從作者獲得單獨授權；請透過 [hooosberg.com](https://hooosberg.com/) 聯繫。
+[PolyForm Noncommercial License 1.0.0](../LICENSE) — 可自由用於**個人和其他非商業用途**的使用、複製、修改和分享。**商業使用不在授權範圍內**，需要從作者獲得單獨授權；請透過 [hooosberg.com](https://hooosberg.com/) 聯繫。
 
 這是原始碼可見授權，不是 OSI 認可的開源授權。必需聲明：Copyright © 2026 hooosberg。
 

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
+  <img src="../assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
 </p>
 
 <h1 align="center">DockTouchBar</h1>
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> ·
+  <a href="../README.md">English</a> ·
   <a href="README.zh-CN.md">简体中文</a> ·
   <a href="README.zh-Hant.md">繁體中文</a> ·
   <a href="README.ja.md">日本語</a> ·
@@ -31,7 +31,7 @@
   <a href="README.tr.md">Türkçe</a>
 </p>
 
-> **두 가지 버전:** 표준 DockTouchBar와, AI 코딩 에이전트의 실시간 상태를 아이콘에 보여 주는 DockTouchBar Vibe. 차이점과 다운로드는 [English README](README.md#two-editions)를 참고하세요.
+> **두 가지 버전:** 표준 DockTouchBar와, AI 코딩 에이전트의 실시간 상태를 아이콘에 보여 주는 DockTouchBar Vibe. 차이점과 다운로드는 [English README](../README.md#two-editions)를 참고하세요.
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
@@ -41,10 +41,10 @@
   <img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
-![DockTouchBar on the Touch Bar](assets/touchbar-idle.gif)
+![DockTouchBar on the Touch Bar](../assets/touchbar-idle.gif)
 *유휴 상태: 하단에 정렬된 앱과 우측 상단의 활성 배지 점(최전면 앱의 경우 빨간색); 애니메이션되는 연기가 있는 픽셀 아트 커피 잔.*
 
-![Long-press to quit: four seasons animation](assets/touchbar-seasons.gif)
+![Long-press to quit: four seasons animation](../assets/touchbar-seasons.gif)
 *길게 누르여 종료: 네 계절에 걸친 좌우 스크롤 픽셀 아트 카운트다운 장면(봄의 달리는 개 / 여름의 범선 / 가을의 숲 여우 / 겨울의 썰매 탈것). 조기 해제하여 취소 가능하며, 계절별 화려한 마무리.*
 
 ### ⚡ 에너지 및 기본 성능(이전 릴리스 측정값)
@@ -184,7 +184,7 @@ assets/                 README 이미지
 
 ## 라이선스
 
-[PolyForm Noncommercial License 1.0.0](LICENSE) — **개인 및 기타 비상업적 목적**으로 자유롭게 사용, 복사, 수정 및 공유 가능. **상업용은 포함되지 않으며** 저자로부터 별도의 라이선스가 필요합니다; [hooosberg.com](https://hooosberg.com/)을 통해 연락주세요.
+[PolyForm Noncommercial License 1.0.0](../LICENSE) — **개인 및 기타 비상업적 목적**으로 자유롭게 사용, 복사, 수정 및 공유 가능. **상업용은 포함되지 않으며** 저자로부터 별도의 라이선스가 필요합니다; [hooosberg.com](https://hooosberg.com/)을 통해 연락주세요.
 
 이는 OSI 승인 오픈 소스 라이선스가 아닌 소스 사용 가능 라이선스입니다. 필수 고지: 저작권 © 2026 hooosberg.
 

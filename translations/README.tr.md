@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
+  <img src="../assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
 </p>
 
 <h1 align="center">DockTouchBar</h1>
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> ·
+  <a href="../README.md">English</a> ·
   <a href="README.zh-CN.md">简体中文</a> ·
   <a href="README.zh-Hant.md">繁體中文</a> ·
   <a href="README.ja.md">日本語</a> ·
@@ -31,7 +31,7 @@
   <a href="README.tr.md">Türkçe</a>
 </p>
 
-> **İki sürüm:** standart DockTouchBar ve yapay zekâ kodlama ajanlarınızın durumunu simgeler üzerinde canlı gösteren DockTouchBar Vibe. Farklar ve indirme için [English README](README.md#two-editions) sayfasına bakın.
+> **İki sürüm:** standart DockTouchBar ve yapay zekâ kodlama ajanlarınızın durumunu simgeler üzerinde canlı gösteren DockTouchBar Vibe. Farklar ve indirme için [English README](../README.md#two-editions) sayfasına bakın.
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
@@ -41,10 +41,10 @@
   <img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
-![Touch Bar'da DockTouchBar](assets/touchbar-idle.gif)
+![Touch Bar'da DockTouchBar](../assets/touchbar-idle.gif)
 *Boş durumu: uygulamalar altta hizalanmış, sağ üstte etkin rozet noktası (ön plandaki uygulama için kırmızı); canlı yükselen buharı olan piksel sanatı kahve fincanı.*
 
-![Uzun basarak çıkma: dört mevsim animasyonu](assets/touchbar-seasons.gif)
+![Uzun basarak çıkma: dört mevsim animasyonu](../assets/touchbar-seasons.gif)
 *Uzun basarak çıkma: yan kaydırmalı piksel sanatı geri sayım sahneleri dört mevsim içinde (bahar koşan köpek / yaz yelken gemi / sonbahar orman tilkisi / kış kızak turu). Erken bırakarak iptal edin, mevsimsel finale patlaması ile.*
 
 ### ⚡ Enerji ve Yerel Performans (Önceki Sürüm Ölçümleri)
@@ -184,7 +184,7 @@ Büyük bir macOS güncellemesinden sonra, `swift tools/probe-private-api.swift`
 
 ## Lisans
 
-[PolyForm Noncommercial License 1.0.0](LICENSE) — **kişisel ve diğer ticari olmayan amaçlar** için ücretsiz olarak kullan, kopyala, değiştir ve paylaş. **Ticari kullanım kapsanmamıştır** ve yazardan ayrı bir lisans gerekir; lütfen [hooosberg.com](https://hooosberg.com/) aracılığıyla iletişime geçin.
+[PolyForm Noncommercial License 1.0.0](../LICENSE) — **kişisel ve diğer ticari olmayan amaçlar** için ücretsiz olarak kullan, kopyala, değiştir ve paylaş. **Ticari kullanım kapsanmamıştır** ve yazardan ayrı bir lisans gerekir; lütfen [hooosberg.com](https://hooosberg.com/) aracılığıyla iletişime geçin.
 
 Bu, OSI tarafından onaylanan açık kaynak lisansı değil, kaynak-kullanılabilir bir lisanstır. Gerekli bildiri: Telif Hakkı © 2026 hooosberg.
 
