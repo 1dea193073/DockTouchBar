@@ -64,12 +64,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = item
 
         AgentMonitor.shared.start()
+        connectAgentHooksOnFirstLaunch()
         applySettings()
         launched = true
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.applySettings()
         }
         scheduleDisplayCheck()
+    }
+
+    /// Vibecoding 版第一次启动时自动把 Claude Code 的 hook 接好（只做一次；之后用户在设置里点“断开”就不会再自动装回来）。
+    /// 已经接好的，每次启动顺手把脚本刷新成当前版本。
+    private func connectAgentHooksOnFirstLaunch() {
+        let flag = "agentHooksAutoConnected"
+        if AgentHookInstaller.isInstalled {
+            try? AgentHookInstaller.refreshScript()
+        } else if !defaults.bool(forKey: flag), defaults.bool(forKey: Key.agentStatus) {
+            if (try? AgentHookInstaller.install()) != nil { defaults.set(true, forKey: flag) }
+        }
     }
 
     /// 把保存的设置同步给 Dock。只在值真的变了才赋值，避免无谓的重绘。

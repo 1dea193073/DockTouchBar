@@ -36,6 +36,9 @@ enum AgentHookInstaller {
         try save(root)
     }
 
+    /// 已连接时，把 hook 脚本重写成当前版本的内容（不动 settings.json）。
+    static func refreshScript() throws { try writeScript() }
+
     static func uninstall() throws {
         var root = try loadForWriting()
         guard var hooks = root["hooks"] as? [String: Any] else { return }
