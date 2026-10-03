@@ -5,13 +5,13 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>DockTouchBar</string>
+	<string>DockTouchBar Vibe</string>
 	<key>CFBundleExecutable</key>
-	<string>DockTouchBar</string>
+	<string>DockTouchBarVibe</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.maohuhu.docktouchbar</string>
+	<string>com.maohuhu.docktouchbar.vibe</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleLocalizations</key>
@@ -30,13 +30,13 @@
 		<string>tr</string>
 	</array>
 	<key>CFBundleName</key>
-	<string>DockTouchBar</string>
+	<string>DockTouchBar Vibe</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.23</string>
+	<string>1.0</string>
 	<key>CFBundleVersion</key>
-	<string>30</string>
+	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSHighResolutionCapable</key>

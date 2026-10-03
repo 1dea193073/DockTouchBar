@@ -3,11 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP_NAME="DockTouchBar"
+APP_NAME="DockTouchBarVibe"
 BUILD_APP="build/$APP_NAME.app"
 INSTALL_APP="/Applications/$APP_NAME.app"
-STAGE="/Applications/.DockTouchBar-install-$$.app"
-BACKUP="/Applications/.DockTouchBar-local-backup-$$.app"
+STAGE="/Applications/.DockTouchBarVibe-install-$$.app"
+BACKUP="/Applications/.DockTouchBarVibe-local-backup-$$.app"
 MOVED_OLD=0
 INSTALLED_NEW=0
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
@@ -37,7 +37,7 @@ for i in {1..50}; do
     sleep 0.2
 done
 if pgrep -x "$APP_NAME" >/dev/null; then
-    echo "Old DockTouchBar did not exit; installation aborted." >&2
+    echo "Old $APP_NAME did not exit; installation aborted." >&2
     exit 1
 fi
 if [ -d "$INSTALL_APP" ]; then
