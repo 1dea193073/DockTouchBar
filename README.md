@@ -83,8 +83,8 @@ Engineered for 24/7 background residency using event-driven app and window updat
 **Pair an agent in three steps**
 
 1. Open **Settings → Pair agents** and press **Copy prompt**.
-2. Paste it to your agent (Claude Code, Codex, Qoder, WorkBuddy, Antigravity, or any agent that can run commands on your Mac). It looks up how its own app does hooks (or, if it has none, writes a rule into its long-term instructions), backs up its config first, tells you every step, then verifies and registers itself.
-3. Once it passes verification it appears in the list with **Verified**. From then on, its icon animates while it works. **Try it** plays the animation without waiting for a task, and **Copy unpair prompt** hands the agent a prompt that undoes its own changes.
+2. Paste it to your agent (any agent that can run commands on your Mac). It checks itself first, then connects the best way it can: through its own hooks, or, if it has none, through a rule in its long-term instructions; for apps Vibe can watch by itself it changes nothing at all. It backs up its config first and tells you every step.
+3. Vibe itself decides whether verification passed (the agent can't mark itself as verified), and only then does the agent appear in the list with **Verified**. From then on, its icon animates while it works. **Try it** plays the animation without waiting for a task, and **Copy unpair prompt** hands the agent a prompt that undoes its own changes.
 
 ![Pair agents page](assets/vibe-pairing-en.png)
 
@@ -93,7 +93,23 @@ What to know:
 - **The app never edits another tool's configuration.** The agent does that, on your Mac, after you paste the prompt, and it is told to back up first, never touch your existing hooks, and show you what it did. Nothing leaves your Mac for this feature.
 - **Needs an agent that can run a command on your Mac and runs in a desktop app** (a terminal or editor works too). Web-only chat tools can't. If the agent can't reach the app, it is told to say so instead of claiming success.
 - **Some agents ask you to trust the new hook once.** Codex, for example: ChatGPT Settings → Hooks → Trust all. The agent will tell you where to click.
-- Tested on the author's Mac with Claude Code, Codex, Qoder, WorkBuddy and Antigravity. Other agents should work the same way, but have not been tried.
+
+### Supported agents
+
+**Any agent that can run a command on your Mac can pair. The list below is only what has been tried so far, not a limit.**
+
+| Agent | How it connects | Notes |
+|---|---|---|
+| Claude Code | its own hooks | |
+| Codex (ChatGPT app / CLI) | its own hooks | Trust the hooks once: ChatGPT Settings → Hooks → Trust all |
+| Qoder | its own hooks | |
+| WorkBuddy | its own hooks | |
+| Antigravity | a rule in its long-term instructions (`GEMINI.md`) | No hooks, so it relies on the agent following the rule |
+| Qwen Work (千问办公) | a rule in its long-term instructions | Same |
+| Doubao Work (豆包) | Vibe reads its session files, read-only | Nothing in Doubao is changed |
+| **Anything else** | paste the prompt | It picks hooks or an instruction rule and reports back. If it can't reach Vibe, it is told to say so instead of claiming success |
+
+All of the above were tried on the author's Mac only. Pairing safety: the prompt tells the agent to back up first, only add (never remove) settings, stop and show you the raw output when anything differs from what it expects, and never fake a verification.
 
 ## Why
 
