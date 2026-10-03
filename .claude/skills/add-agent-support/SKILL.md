@@ -21,6 +21,7 @@ description: 给 DockTouchBar Vibe 增加对一个新的 AI 编程助手（Claud
 3. **在 `AgentIntegration.swift` 里加一条** `AgentIntegration(id:name:configPath:events:afterConnectNote:)`，把它加进 `all`。配置格式如果不是“顶层 `hooks` → 事件名 → 分组数组 → `hooks` 数组 → command”这一种，要先扩展 `AgentHookInstaller`（并先补测试）。事件名映射成 App 认的几类语义：`UserPromptSubmit`（开始）、`PostToolUse`（心跳）、`Stop`（做完）、`SessionEnd`（结束）、`Interrupt`（被打断）；名字不一样就在 `AgentMonitor.handle` 里加别名。
 4. **需要用户做的一步**（比如审核信任 hook）写进 `afterConnectNote`，设置页会显示。**不要替用户伪造信任或绕过审核**，这是安全边界。
 5. **跑验证**：`bash tools/verify-agent-hooks.sh`（必须 `RESULT failures=0`）。新助手会自动被测试覆盖（安装、卸载、保留原配置、坏文件不动、旧脚本迁移）；它特有的行为（比如事件别名）在 `tools/verify-agent-hooks/main.swift` 里补用例。
+5b. **Codex 排查**：`python3 tools/check-codex-hooks.py` 问 Codex 我们的 hook 是什么状态（只读）；不是 `trusted` 的它不会执行。另外 App 会把收到的事件记进 `~/Library/Application Support/DockTouchBarVibe/events.log`，没有新行 = hook 没执行，有行但 `app=-` = 进程链没找到 App。
 6. **实机连一次**：`bash scripts/install.sh`，在设置里看到“已连接”，让助手干点活，看对应 App 的图标。进程链找不到 App 时，用 `ps -o pid,ppid,comm -p <pid>` 沿父进程往上看实际是谁。
 7. **更新** `docs/` 里的记录，提交到 `vibecoding`，需要发版按 `docs/BRANCHES.md`（标签 `vibe-v*`，发布加 `--latest=false`）。
 
