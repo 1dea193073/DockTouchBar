@@ -104,13 +104,9 @@ final class AgentOverlayLayer: CALayer {
         content.addSublayer(cursor)
         content.mask = shape
         addSublayer(content)
-        // 沿图标轮廓描一圈绿线，像老式绿色荧光屏的边缘：原来的图标轮廓一直认得出来。
+        // 沿图标轮廓描一圈像素风的边框（经典 Mac 的做法：硬边、阶梯状的圆角、里面再压一圈暗线），原来的图标轮廓一直认得出来。
         outline.contentsScale = 2
         outline.magnificationFilter = .nearest
-        outline.shadowColor = Self.green
-        outline.shadowRadius = 2.5
-        outline.shadowOpacity = 0.9
-        outline.shadowOffset = .zero
         addSublayer(outline)
         isHidden = true
     }
@@ -126,17 +122,6 @@ final class AgentOverlayLayer: CALayer {
         shape.frame = content.bounds
         shape.contents = icon
         outline.contents = icon.flatMap(Self.outlineImage(of:))
-        outline.removeAnimation(forKey: "glow")
-        if state == .working {
-            // 荧光屏一样的呼吸：亮度在 0.7 到 1 之间慢慢起伏。
-            let glow = CABasicAnimation(keyPath: "opacity")
-            glow.fromValue = 0.7
-            glow.toValue = 1
-            glow.duration = 1.4
-            glow.autoreverses = true
-            glow.repeatCount = .infinity
-            outline.add(glow, forKey: "glow")
-        }
         isHidden = state == .idle
         rain.sublayers?.forEach { $0.removeFromSuperlayer() }
         cursor.removeAllAnimations()
@@ -210,10 +195,14 @@ final class AgentOverlayLayer: CALayer {
         cursor.add(blink, forKey: "blink")
     }
 
-    /// 图标不透明区域的边缘（约 2 像素宽）染成绿色，其余透明。边缘 = 不透明、且周围 2 像素内有透明（或出了画布）的点。
+    /// 像素风边框：把图标按 1pt（2×2 设备像素）一格量化，不透明的格子里，贴着外缘的一圈画成奶白色，
+    /// 紧挨着它里面再一圈压成半透明的黑。格子是整格的，圆角自然变成阶梯状，像经典 Mac 的位图图标。
     private static func outlineImage(of icon: CGImage) -> CGImage? {
         let w = icon.width, h = icon.height
-        guard let source = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+        let cell = 2
+        let gw = w / cell, gh = h / cell
+        guard gw > 4, gh > 4,
+              let source = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
               let output = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
@@ -221,17 +210,29 @@ final class AgentOverlayLayer: CALayer {
                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         source.draw(icon, in: CGRect(x: 0, y: 0, width: w, height: h))
         guard let data = source.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
-        func solid(_ x: Int, _ y: Int) -> Bool {
-            x >= 0 && x < w && y >= 0 && y < h && data[(y * w + x) * 4 + 3] >= 128
+        // 一格里 4 个像素的平均不透明度过半才算“实”。
+        func solid(_ gx: Int, _ gy: Int) -> Bool {
+            guard gx >= 0, gx < gw, gy >= 0, gy < gh else { return false }
+            var total = 0
+            for dy in 0..<cell { for dx in 0..<cell { total += Int(data[((gy * cell + dy) * w + gx * cell + dx) * 4 + 3]) } }
+            return total / (cell * cell) >= 128
         }
-        output.setFillColor(green)
-        for y in 0..<h {
-            for x in 0..<w where solid(x, y) {
-                var edge = false
-                scan: for dy in -2...2 {
-                    for dx in -2...2 where abs(dx) + abs(dy) <= 2 && !solid(x + dx, y + dy) { edge = true; break scan }
-                }
-                if edge { output.fill(CGRect(x: x, y: y, width: 1, height: 1)) }
+        func touchesEmpty(_ gx: Int, _ gy: Int) -> Bool {
+            !solid(gx - 1, gy) || !solid(gx + 1, gy) || !solid(gx, gy - 1) || !solid(gx, gy + 1)
+        }
+        func touchesEdge(_ gx: Int, _ gy: Int) -> Bool {
+            [(-1, 0), (1, 0), (0, -1), (0, 1)].contains { solid(gx + $0.0, gy + $0.1) && touchesEmpty(gx + $0.0, gy + $0.1) }
+        }
+        let rim = CGColor(srgbRed: 0.96, green: 0.95, blue: 0.88, alpha: 1)
+        let inner = CGColor(gray: 0, alpha: 0.55)
+        for gy in 0..<gh {
+            for gx in 0..<gw where solid(gx, gy) {
+                if touchesEmpty(gx, gy) {
+                    output.setFillColor(rim)
+                } else if touchesEdge(gx, gy) {
+                    output.setFillColor(inner)
+                } else { continue }
+                output.fill(CGRect(x: gx * cell, y: gy * cell, width: cell, height: cell))
             }
         }
         return output.makeImage()
