@@ -31,6 +31,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSApp.terminate(nil)
             return
         }
+        // 纯净版在运行时也会抢 Touch Bar，提示后退出。
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.maohuhu.docktouchbar").isEmpty {
+            showAlert(L10n.tr("纯净版 DockTouchBar 正在运行", "The standard DockTouchBar is running"),
+                      L10n.tr("两个版本会抢同一条 Touch Bar。先退出纯净版，再打开 \(AppInfo.name)。",
+                              "Both versions fight over the same Touch Bar. Quit the standard version first, then open \(AppInfo.name)."))
+            NSApp.terminate(nil)
+            return
+        }
         defaults.register(defaults: SettingsKey.defaults)
         settingsWindow.onDiagnose = { [weak self] in self?.showDiagnostics() }
 
@@ -55,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = menu
         statusItem = item
 
+        AgentMonitor.shared.start()
         applySettings()
         launched = true
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -87,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         dock.pauseDuration = TimeInterval(defaults.integer(forKey: Key.hideSeconds))
         dock.iconSpacing = CGFloat(defaults.integer(forKey: Key.iconSpacing))
         dock.centersIcons = defaults.bool(forKey: Key.centerIcons)
+        AgentMonitor.shared.isEnabled = defaults.bool(forKey: Key.agentStatus)
         let enabled = defaults.bool(forKey: Key.enabled)
         if appliedEnabled != enabled {
             appliedEnabled = enabled

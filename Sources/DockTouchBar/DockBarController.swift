@@ -227,6 +227,7 @@ final class DockBarController: NSObject {
         centerButton.setAccessibilityLabel(L10n.tr("窗口居中", "Center the window"))
         windowWatcher.onChange = { [weak self] in self?.refreshCenterIcon() }
         finderWindowMonitor.onChange = { [weak self] in self?.scheduleReload() }
+        AgentMonitor.shared.onChange = { [weak self] in self?.scheduleReload() }
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(equalToConstant: Metrics.maxDockWidth),
             container.heightAnchor.constraint(equalToConstant: 30),
@@ -447,6 +448,8 @@ final class DockBarController: NSObject {
         let tile = tiles[index]
         guard tile.kind != .divider else { return }
         (scrubber.itemViewForItem(at: index) as? DockTileView)?.flash()
+        // 点一下就把“做完了”的对号收掉。
+        if tile.agentState == .done, let id = tile.bundleID { AgentMonitor.shared.acknowledge(bundleID: id) }
         let now = Date()
         if doubleTapMinimizes, let last = lastTap, last.tile.isSameSlot(as: tile),
            now.timeIntervalSince(last.time) < Metrics.doubleTapInterval {
@@ -897,6 +900,10 @@ final class DockTileView: NSScrubberItemView {
     private let iconLayer = CALayer()
     /// 右上角状态点：红色＝当前激活（前台）App，未激活/未运行不显示。参考系统图标右上角的提示徽标位置。
     private let badgeLayer = CALayer()
+    /// 图标下三分之一的 Agent 状态层（字符雨 / 对号）。
+    private let agentLayer = AgentOverlayLayer()
+    private var agentState: AgentState = .idle
+    private var iconURL: URL?
     private let dividerLayer = CALayer()
     private var iconSize: CGFloat = 24
     /// 图形（裁掉留白之后）在 `iconLayer` 本地坐标系里的实际范围；状态点靠它定位，图标和点因此
@@ -922,7 +929,7 @@ final class DockTileView: NSScrubberItemView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        for sublayer in [highlightLayer, iconLayer, badgeLayer, dividerLayer] {
+        for sublayer in [highlightLayer, iconLayer, agentLayer, badgeLayer, dividerLayer] {
             sublayer.contentsScale = 2
             layer?.addSublayer(sublayer)
         }
@@ -946,6 +953,8 @@ final class DockTileView: NSScrubberItemView {
         iconLayer.contents = tile.url.flatMap { IconCache.image(for: $0, pointSize: iconSize) }
         iconContentRect = tile.url.flatMap { IconCache.contentRect(for: $0, pointSize: iconSize) }
         iconLayer.isHidden = tile.kind == .divider
+        agentState = tile.kind == .app ? tile.agentState : .idle
+        iconURL = tile.url
         // 没运行的 App（固定在栏里但还没启动）、没开着窗口的垃圾桶，图标暗一些，一眼能和运行中的分开，但不用暗到看不清图标本身。
         baseOpacity = tile.isRunning ? 1 : 0.6
         iconLayer.opacity = baseOpacity
@@ -1004,6 +1013,9 @@ final class DockTileView: NSScrubberItemView {
         let badgeCenterY = glyph.maxY - pull
         badgeLayer.frame = CGRect(x: badgeCenterX - badgeSize / 2, y: badgeCenterY - badgeSize / 2,
                                   width: badgeSize, height: badgeSize)
+        agentLayer.frame = iconLayer.frame
+        agentLayer.update(state: agentState, size: iconSize, glyph: glyph,
+                          icon: iconURL.flatMap { IconCache.image(for: $0, pointSize: iconSize) }, key: iconURL)
         dividerLayer.frame = CGRect(x: (b.width - 1) / 2, y: (b.height - 18) / 2, width: 1, height: 18)
         CATransaction.commit()
     }

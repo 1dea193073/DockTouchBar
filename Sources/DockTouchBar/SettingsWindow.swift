@@ -421,6 +421,8 @@ private struct SettingsForm: View {
     @AppStorage(SettingsKey.yieldCapture) private var yieldCapture = true
     @AppStorage(SettingsKey.yieldFunctionRow) private var yieldFn = true
     @AppStorage(SettingsKey.language) private var language = AppLanguage.system.rawValue
+    @AppStorage(SettingsKey.agentStatus) private var agentStatus = true
+    @State private var hooksInstalled = AgentHookInstaller.isInstalled
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hasAccess = AppSwitcher.hasAccessibilityAccess
 
@@ -459,6 +461,21 @@ private struct SettingsForm: View {
                                      : L10n.tr("屏幕宽度的 \($0)%", "\($0)% of screen width")).tag($0)
                     }
                 }
+            }
+
+            Section(L10n.tr("AI 编程助手", "AI coding agents")) {
+                Toggle(L10n.tr("在图标上显示工作状态", "Show working status on icons"), isOn: $agentStatus)
+                HStack {
+                    Text(hooksInstalled ? L10n.tr("Claude Code：已连接", "Claude Code: connected")
+                                        : L10n.tr("Claude Code：未连接", "Claude Code: not connected"))
+                    Spacer()
+                    Button(hooksInstalled ? L10n.tr("断开", "Disconnect") : L10n.tr("连接", "Connect")) {
+                        setHooks(installed: !hooksInstalled)
+                    }
+                }
+                Text(L10n.tr("连接会在 ~/.claude/settings.json 里加几条 hook（改之前自动备份，断开时原样删掉）。Claude Code 工作时，所在 App 的图标下方出现字符雨，做完变成对号，点一下图标消失。",
+                             "Connecting adds a few hooks to ~/.claude/settings.json (backed up first, removed again when you disconnect). While Claude Code works, the icon of the app it runs in shows falling digits; when it finishes, a check mark appears, and a tap on the icon dismisses it."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section(L10n.tr("手势", "Gestures")) {
@@ -514,7 +531,20 @@ private struct SettingsForm: View {
         .onAppear {
             hasAccess = AppSwitcher.hasAccessibilityAccess
             launchAtLogin = SMAppService.mainApp.status == .enabled
+            hooksInstalled = AgentHookInstaller.isInstalled
         }
+    }
+
+    private func setHooks(installed: Bool) {
+        do {
+            if installed { try AgentHookInstaller.install() } else { try AgentHookInstaller.uninstall() }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = L10n.tr("无法修改 Claude Code 配置", "Couldn't change the Claude Code settings")
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+        hooksInstalled = AgentHookInstaller.isInstalled
     }
 
     private func setLaunchAtLogin(_ on: Bool) {

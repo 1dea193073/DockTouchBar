@@ -61,6 +61,26 @@ for (index, hex) in tileColors.enumerated() {
     x += tileSize + gap
 }
 
+// Vibecoding 版标记：右下角黑底绿字的小 “V”，和纯净版的图标一眼能分开。
+let badge = CGRect(x: 640, y: 150, width: 220, height: 220)
+ctx.saveGState()
+ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 14, color: color(0x000000, 0.5))
+ctx.addPath(CGPath(roundedRect: badge, cornerWidth: 62, cornerHeight: 62, transform: nil))
+ctx.setFillColor(color(0x000000))
+ctx.fillPath()
+ctx.restoreGState()
+ctx.addPath(CGPath(roundedRect: badge, cornerWidth: 62, cornerHeight: 62, transform: nil))
+ctx.setStrokeColor(color(0x2BFF88, 0.9))
+ctx.setLineWidth(6)
+ctx.strokePath()
+NSGraphicsContext.saveGraphicsState()
+NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+let vFont = NSFont.monospacedSystemFont(ofSize: 170, weight: .heavy)
+let vText = NSAttributedString(string: "V", attributes: [.font: vFont, .foregroundColor: NSColor(srgbRed: 0.17, green: 1, blue: 0.53, alpha: 1)])
+let vSize = vText.size()
+vText.draw(at: CGPoint(x: badge.midX - vSize.width / 2, y: badge.midY - vSize.height / 2))
+NSGraphicsContext.restoreGraphicsState()
+
 let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
 try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: output))
 print("Wrote \(output)")

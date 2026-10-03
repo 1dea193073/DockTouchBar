@@ -9,6 +9,8 @@ struct DockTile: Equatable {
     var isRunning = false
     var isFrontmost = false
     var isTemporary = false
+    /// AI 编程助手在这个 App 里的状态（Vibecoding 版）。不参与“是不是同一个位置”的判断，变了只原地刷新。
+    var agentState: AgentState = .idle
 
     static let divider = DockTile(kind: .divider, url: nil, bundleID: nil)
     static let temporaryDivider = DockTile(kind: .divider, url: nil, bundleID: "temporary-apps")
@@ -91,6 +93,11 @@ enum DockModel {
                      isTemporary: !pinned.contains { matches(item.app, bundleID: $0.bundleID, url: $0.url) })
         }
         return arrange(base: tiles, others: temporaryTiles, includePinned: includePinned, trashOpen: TrashWindow.isOpenOrUnknown)
+            .map { tile in
+                var tile = tile
+                if tile.kind == .app, let id = tile.bundleID { tile.agentState = AgentMonitor.shared.state(for: id) }
+                return tile
+            }
     }
 
     /// 排列：固定模式下，临时 App（最近启动的在最左）→ 访达和固定 App → 垃圾桶；
