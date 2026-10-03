@@ -7,28 +7,33 @@ description: 给 DockTouchBar Vibe 增加对一个新的 AI 编程助手（Claud
 
 只在 `vibecoding` 分支做，不动 `main`（纯净版）。先 `git branch --show-current` 确认。
 
+## 现在只有一条路：提示词配对
+
+App 不再替任何助手改配置（早期的 Claude Code / Codex 内置连接已经去掉；它们早期装的 hook 还在各自配置里继续工作，启动时自动补一份登记）。接入一个新智能体 = 用户在设置 →「配对智能体」页复制提示词（`AgentPairingPrompt.swift`）交给它，由它自己查 hook、改配置、验证、登记到 `agents/<id>.json`。新增智能体**不用改代码**；要改的只有：
+
+1. **提示词措辞**：它在真实智能体上跑得不好时调（`AgentPairingPrompt.swift`，中英两份都要改）。
+2. **状态机**（`AgentStatus.swift`）：出现新的卡住/误判时修，并先在 `tools/verify-agent-hooks/main.swift` 里补用例。
+
 ## 它是怎么工作的（别重新发明）
 
-1. 助手的 **hook** 在开始、工具调用后、做完、会话结束、被打断时执行 `~/Library/Application Support/DockTouchBarVibe/agent-hook.sh <事件名>`。
-2. 脚本把 `事件名 \t 父进程号 \t 助手传来的 JSON` 一行写进 Unix socket。
-3. `AgentMonitor`（`AgentStatus.swift`）从父进程号一路往上找到第一个有 Dock 图标的 App（终端、VS Code、ChatGPT/Codex 桌面版……），按 App 汇总状态：`idle` / `working` / `done`。
-4. `DockModel` 把状态写进 `DockTile.agentState`，`DockTileView` 把它交给 `AgentOverlayLayer`（`AgentOverlay.swift`）画动画。**动画和状态机跟具体助手无关，接新助手不用改它们。**
+1. 智能体的 hook（或它按指令手动）执行 `~/Library/Application Support/DockTouchBarVibe/agent-hook.sh <事件> [id] [会话id] < /dev/null`。
+2. 脚本把 `事件[|id] \t 父进程号 \t JSON` 一行写进 Unix socket。手动调用时 JSON 是 `{"session_id":…,"manual":true}`。
+3. `AgentMonitor` 从父进程号一路往上找到第一个有 Dock 图标的 App，按 App 汇总 `idle / working / done`。
+4. `DockModel` 把状态写进 `DockTile.agentState`，`DockTileView` 交给 `AgentOverlayLayer`（`AgentOverlay.swift`）画动画。动画和状态机跟具体智能体无关。
 
-## 两条路
+### 状态机的约定（出过的坑，别改回去）
 
-1. **用户自己配对（首选，不用改代码）**：设置 →「配对智能体」页，把提示词（`AgentPairingPrompt.swift`）复制给任何有自主能力的智能体，它自己查 hook、改配置、验证、登记到 `agents/<id>.json`。调用方式 `agent-hook.sh <事件> <id> <会话id> < /dev/null`。配对列表按 `events.log` 里的 `agent=<id>` 判断“已验证”。新增智能体不用动代码；要改的是提示词的措辞（它在真实智能体上跑得不好时）。
-2. **内置接入（下面的步骤）**：只给最主流、值得一键连接的助手做（目前 Claude Code、Codex）。
+- **严格 vs 宽松**：会话 id 来自 hook 的 JSON（Claude Code、Codex）是严格的，只处理自己的会话，允许同时多个会话；手动调脚本的（`manual:true` 或没有会话 id）是宽松的：Stop/Interrupt 把它名下所有工作中的会话一起收尾，3 分钟没事件就当中断。没带会话 id 时用 `agent-<id>` 当会话，不用进程号（每次调用进程号都不同，永远对不上开始和结束）。
+- **心跳不能新建会话**：用户点掉“做完了”之后迟到的 PostToolUse 会造出永远等不到 Stop 的“工作中”。
+- **Esc 打断**：Claude Code 不发任何 hook，但会往聊天记录（hook JSON 里的 `transcript_path`）追加 `[Request interrupted by user`；`scanTranscriptsForInterrupts` 每 2 秒从会话开始时的文件位置往后找，找到就回到空闲。Codex 有 `Interrupt` 事件。
+- **“已验证”看 `activity.json`**（App 自己写，按 agent id 存最近一次事件），不要看 `events.log`（它只是诊断日志，会被截断、被挪走）。不带 id 的旧 hook，用 `transcript_path` 里的 `/.claude/`、`/.codex/` 认出是谁。
+- Codex 的 hook 要用户先在 ChatGPT 设置 → Hooks → 全部信任（命令行 `/hooks`），按 hook 内容的哈希记录，改命令字符串就要重新信任；排查用 `python3 tools/check-codex-hooks.py`。不要替用户伪造信任。
 
-## 接入一个新助手（内置）：步骤
+## 排查“没反应 / 卡住”
 
-1. **查它的 hook 机制**（先查官方文档，再用本机实测）：配置文件路径和格式、有哪些事件、stdin 里有没有 `session_id`、`Stop` 是每轮触发还是整个会话结束才触发、有没有“被打断”事件、**hook 是否要用户先审核/信任**（Codex 要）、桌面版是否也读同一个配置。不要凭记忆写，查完把结论写进下面第 3 步的注释。
-2. **本机实测 hook 会不会触发**：在临时目录写一个只记录 stdin 的脚本（见 `docs/` 里的做法），跑一次最小的助手任务，看事件和字段。注意：`codex exec` 要 `< /dev/null`，否则会卡在等 stdin；会占用用户的额度，只跑一句话的任务。
-3. **在 `AgentIntegration.swift` 里加一条** `AgentIntegration(id:name:configPath:events:afterConnectNote:)`，把它加进 `all`。配置格式如果不是“顶层 `hooks` → 事件名 → 分组数组 → `hooks` 数组 → command”这一种，要先扩展 `AgentHookInstaller`（并先补测试）。事件名映射成 App 认的几类语义：`UserPromptSubmit`（开始）、`PostToolUse`（心跳）、`Stop`（做完）、`SessionEnd`（结束）、`Interrupt`（被打断）；名字不一样就在 `AgentMonitor.handle` 里加别名。
-4. **需要用户做的一步**（比如审核信任 hook）写进 `afterConnectNote`，设置页会显示。**不要替用户伪造信任或绕过审核**，这是安全边界。
-5. **跑验证**：`bash tools/verify-agent-hooks.sh`（必须 `RESULT failures=0`）。新助手会自动被测试覆盖（安装、卸载、保留原配置、坏文件不动、旧脚本迁移）；它特有的行为（比如事件别名）在 `tools/verify-agent-hooks/main.swift` 里补用例。
-5b. **Codex 排查**：`python3 tools/check-codex-hooks.py` 问 Codex 我们的 hook 是什么状态（只读）；不是 `trusted` 的它不会执行。另外 App 会把收到的事件记进 `~/Library/Application Support/DockTouchBarVibe/events.log`，没有新行 = hook 没执行，有行但 `app=-` = 进程链没找到 App。
-6. **实机连一次**：`bash scripts/install.sh`，在设置里看到“已连接”，让助手干点活，看对应 App 的图标。进程链找不到 App 时，用 `ps -o pid,ppid,comm -p <pid>` 沿父进程往上看实际是谁。
-7. **更新** `docs/` 里的记录，提交到 `vibecoding`，需要发版按 `docs/BRANCHES.md`（标签 `vibe-v*`，发布加 `--latest=false`）。
+1. `~/Library/Application Support/DockTouchBarVibe/events.log`：没有新行 = hook 没执行；有行但 `app=-` = 进程链没找到 App。
+2. 设置页配对列表底部的“清除动画状态”。
+3. Claude 桌面版里多个会话共用一个图标，任何一个会话卡在“工作中”整个图标都会动。
 
 ## 调整图标上的动画 / 外观
 
@@ -36,7 +41,7 @@ description: 给 DockTouchBar Vibe 增加对一个新的 AI 编程助手（Claud
 
 - 字符雨：`glyphBitmaps`（5×7 点阵）、`stripVariants/drawStrip`（雨头发光、尾巴曲线渐隐、字符跳变）。
 - CRT 屏幕外框：`crtFrame(of:)`，按“离图标边缘几个像素”分层（机身边、玻璃边、内阴影、左上角反光），所以自动贴合任何圆角。
-- 8-bit 原图标：`pixelated(_:)`（28×28 格、64 色）。
+- 8-bit 原图标：`pixelated(_:)`（28×28 格，真正的 8 位色板 RGB332：红绿各 8 档、蓝 4 档；每通道只留 4 档会把橙色量化成红色）。
 - OK：`okImage()`（5×7 点阵，每点 1pt）。
 
 **出图流程（每次改完都跑）**：
@@ -45,6 +50,7 @@ description: 给 DockTouchBar Vibe 增加对一个新的 AI 编程助手（Claud
 swift build 2>&1 | grep -E "error|Build"
 bash tools/preview-agent.sh build/agent-preview.png   # 实时窗口截图，已放大，用 Read 打开看
 bash tools/render-settings.sh build/pairing-page.png  # 离屏渲染“配对智能体”页（Stage Manager 会把设置窗口收起来，别截真窗口）
+PREVIEW_AGENT_APP=/Applications/Xxx.app bash tools/preview-agent.sh   # 把某个真实 App 的图标放进预览，看它工作中的样子（颜色、辨识度）
 ```
 
 看图要点：原图标认不认得出、字符雨密度和亮度、`OK` 在绿色/白色图标上的对比度、边框是否贴合圆角。静态截图看不出动画流畅度和光标闪烁，要说清楚“没看到动画”，让用户在真 Touch Bar 上确认。
