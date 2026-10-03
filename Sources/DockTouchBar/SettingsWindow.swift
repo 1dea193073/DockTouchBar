@@ -6,13 +6,21 @@ import ServiceManagement
 /// 每次打开都重新创建内容，这样切换语言后再打开就是新语言。
 final class SettingsWindowController {
     private var window: NSWindow?
+    private var defaultsObserver: NSObjectProtocol?
     /// 诊断按钮要做的事，由 AppDelegate 提供。
     var onDiagnose: () -> Void = {}
 
     func show(page: SettingsPage = .settings, checkUpdates: Bool = false) {
         let window = self.window ?? makeWindow()
         self.window = window
-        window.title = L10n.tr("\(AppInfo.name) 设置", "\(AppInfo.name) Settings")
+        updateTitle()
+        if defaultsObserver == nil {
+            // 窗口开着时切换了语言，标题也要跟着换。
+            defaultsObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.updateTitle()
+            }
+        }
         window.contentViewController = NSHostingController(rootView: SettingsView(initialPage: page, onDiagnose: onDiagnose))
         window.center()
         if #available(macOS 14, *) {
@@ -24,6 +32,10 @@ final class SettingsWindowController {
         if checkUpdates {
             UpdateManager.shared.checkForUpdates(silent: false)
         }
+    }
+
+    private func updateTitle() {
+        window?.title = L10n.tr("\(AppInfo.name) 设置", "\(AppInfo.name) Settings")
     }
 
     private func makeWindow() -> NSWindow {
@@ -94,6 +106,7 @@ private struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .id(language)
             .frame(width: 300)
             .padding(.vertical, 14)
 
@@ -413,6 +426,12 @@ private struct SettingsForm: View {
 
     var body: some View {
         Form {
+            Section(L10n.tr("语言", "Language")) {
+                Picker(L10n.tr("界面语言", "Interface language"), selection: $language) {
+                    ForEach(AppLanguage.allCases, id: \.rawValue) { Text($0.nativeName).tag($0.rawValue) }
+                }
+            }
+
             Section(L10n.tr("显示", "Display")) {
                 Toggle(L10n.tr("在 Touch Bar 上显示 Dock", "Show Dock on Touch Bar"), isOn: $enabled)
                     .disabled(!TouchBarBridge.isAvailable)
@@ -462,11 +481,6 @@ private struct SettingsForm: View {
             }
 
             Section(L10n.tr("通用", "General")) {
-                Picker(L10n.tr("语言", "Language"), selection: $language) {
-                    Text(L10n.tr("跟随系统", "Follow System")).tag(AppLanguage.system.rawValue)
-                    Text("简体中文").tag(AppLanguage.chinese.rawValue)
-                    Text("English").tag(AppLanguage.english.rawValue)
-                }
                 Toggle(L10n.tr("登录时自动启动", "Launch at login"), isOn: Binding(
                     get: { launchAtLogin },
                     set: { setLaunchAtLogin($0) }))

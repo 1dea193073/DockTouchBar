@@ -11,10 +11,24 @@
   <br>
   单击切换 · 双击最小化 · 长按退出
   <br>
-  <a href="README.md">English</a> ·
   <a href="https://github.com/hooosberg/DockTouchBar/releases/latest">下载</a> ·
   <a href="https://hooosberg.com/apps/docktouchbar">产品页</a> ·
   <a href="https://hooosberg.com/apps/docktouchbar/diary">开发日记</a>
+</p>
+
+<p align="center">
+  <a href="README.md">English</a> ·
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="README.zh-Hant.md">繁體中文</a> ·
+  <a href="README.ja.md">日本語</a> ·
+  <a href="README.ko.md">한국어</a> ·
+  <a href="README.fr.md">Français</a> ·
+  <a href="README.de.md">Deutsch</a> ·
+  <a href="README.es.md">Español</a> ·
+  <a href="README.pt.md">Português</a> ·
+  <a href="README.ru.md">Русский</a> ·
+  <a href="README.it.md">Italiano</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
@@ -61,7 +75,7 @@ Pock、PockV2 等都能把 Dock 放到 Touch Bar 上，但它们做的事情更�
 - 使用 macOS 图标和系统自己的 Touch Bar 滚动控件。未固定的运行中应用放在左侧，新启动的排在最前面；固定应用保持系统 Dock 顺序。关闭应用后保留当前可视区域。
 - 手势不打扰你：单击立刻生效，不会为了等你是不是要双击而延迟；长按时图标下方出现一条安静的进度条，Touch Bar 右边缘还会显示“正在关闭…”和倒计时（手指不会挡住），背景是一幅像素画的季节小场景，春夏秋冬可以在菜单里切换，中途松手就取消。
 - 连点也很跟手：永远以最后一下为准，也不会和你争。切桌面被系统丢掉、或者焦点被别的 App 抢走，它会悄悄纠正回来；你一动键盘、鼠标或触控板，它立刻停手。
-- 跟随你的语言（English / 简体中文），只需要一个可选的权限。
+- 跟随你的语言（12 种语言，从简体中文、English 到 日本語），只需要一个可选的权限。
 
 **高效**
 
@@ -88,7 +102,7 @@ Pock、PockV2 等都能把 Dock 放到 Touch Bar 上，但它们做的事情更�
 
 菜单栏菜单里只保留常用开关：在 Touch Bar 上显示 Dock、只显示正在运行的 App（默认不勾选：固定在 Dock 里的 App 也会显示；勾选后变灰的图标——包括没有窗口的访达、已关闭的垃圾桶——都不显示，访达排在最左）、图标居中显示（图标放得下时居中，超出宽度就从左边开始滑动）、显示“窗口居中 / 最大化”按钮、登录时自动启动。点 **设置…** 打开设置窗口，有三页：
 
-- **设置**：图标间距；点咖啡杯后临时隐藏的时长（10 / 20 / 30 / 60 秒）；居中后窗口的大小（高度为屏幕高度的 60–100%；宽度与高度相同，或为屏幕宽度的 50–100%）；双击最小化；长按关闭（不启用 / 1 / 2 / 3 / 5 秒）及提示风格（春夏秋冬，选中后 Touch Bar 上会演示一遍）；系统 Touch Bar 避让（截图 / 录屏与 Fn 两个独立开关，默认开启）；语言（跟随系统 / 简体中文 / English）；辅助功能权限状态和去系统设置的入口（除此之外不需要任何权限）；“为什么看不到 Dock？”诊断
+- **设置**：图标间距；点咖啡杯后临时隐藏的时长（10 / 20 / 30 / 60 秒）；居中后窗口的大小（高度为屏幕高度的 60–100%；宽度与高度相同，或为屏幕宽度的 50–100%）；双击最小化；长按关闭（不启用 / 1 / 2 / 3 / 5 秒）及提示风格（春夏秋冬，选中后 Touch Bar 上会演示一遍）；系统 Touch Bar 避让（截图 / 录屏与 Fn 两个独立开关，默认开启）；语言（跟随系统，或 12 种语言之一，位于设置页最上面；Touch Bar 上长按关闭的提示也会跟着翻译）；辅助功能权限状态和去系统设置的入口（除此之外不需要任何权限）；“为什么看不到 Dock？”诊断
 - **使用说明**：手势和按钮
 - **关于**：版本、检查更新、产品页和开发日记链接、Star 按钮
 

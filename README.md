@@ -11,10 +11,24 @@
   <br>
   Tap to switch · double-tap to minimize · long-press to quit
   <br>
-  <a href="README.zh-CN.md">简体中文</a> ·
   <a href="https://github.com/hooosberg/DockTouchBar/releases/latest">Download</a> ·
   <a href="https://hooosberg.com/apps/docktouchbar">Product page</a> ·
   <a href="https://hooosberg.com/apps/docktouchbar/diary">Build diary</a>
+</p>
+
+<p align="center">
+  <a href="README.md">English</a> ·
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="README.zh-Hant.md">繁體中文</a> ·
+  <a href="README.ja.md">日本語</a> ·
+  <a href="README.ko.md">한국어</a> ·
+  <a href="README.fr.md">Français</a> ·
+  <a href="README.de.md">Deutsch</a> ·
+  <a href="README.es.md">Español</a> ·
+  <a href="README.pt.md">Português</a> ·
+  <a href="README.ru.md">Русский</a> ·
+  <a href="README.it.md">Italiano</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
@@ -61,7 +75,7 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 - Uses macOS icons and the system Touch Bar scroller. Unpinned running apps appear on the left, newest first; pinned apps keep their Dock order. Closing an app keeps the current visible area.
 - Gestures that stay out of your way: a tap acts immediately (it never waits to see whether a double-tap is coming), and long-press shows a quiet progress bar under the icon, plus a "Closing …" countdown at the right edge of the Touch Bar so your finger never hides it, drawn as a little pixel-art scene you can switch between four seasons. Release early to cancel.
 - Rapid taps feel right: the last tap always wins, and it never fights you. If the system drops a desktop switch or something steals focus, it quietly puts things right, and it stops the moment you touch the keyboard, mouse or trackpad.
-- Speaks your language (English / 简体中文) and asks for just one optional permission.
+- Speaks your language (12 languages, from English to 简体中文 and 日本語) and asks for just one optional permission.
 
 **Efficient**
 
@@ -88,7 +102,7 @@ Pock, PockV2 and friends can put the Dock on the Touch Bar, but they do a lot mo
 
 The menu bar menu keeps the everyday switches: Show Dock on Touch Bar, Only show running apps (off by default: pinned apps are shown too; apps that would be dimmed, including Finder without windows and a closed Trash, are hidden, and Finder sits at the far left), Center the icons (when they fit; once they overflow they start from the left and scroll), Show the center / maximize button, and Launch at login. **Settings…** opens the settings window, which has three pages:
 
-- **Settings** — icon spacing; hide-for-a-moment time after tapping the coffee cup (10 / 20 / 30 / 60 s); the size of the centered window (60–100% of the screen height; width same as height, or 50–100% of the screen width); double-tap to minimize; long-press to close (Off / 1 / 2 / 3 / 5 s) and its style (Spring / Summer / Autumn / Winter, with a short preview on the Touch Bar); yielding to system Touch Bar controls (independent screenshot / recording and Fn switches, on by default); language (Follow System / 简体中文 / English); Accessibility permission status with a shortcut to System Settings (nothing else needs a permission); and the "why can't I see the Dock?" diagnosis
+- **Settings** — icon spacing; hide-for-a-moment time after tapping the coffee cup (10 / 20 / 30 / 60 s); the size of the centered window (60–100% of the screen height; width same as height, or 50–100% of the screen width); double-tap to minimize; long-press to close (Off / 1 / 2 / 3 / 5 s) and its style (Spring / Summer / Autumn / Winter, with a short preview on the Touch Bar); yielding to system Touch Bar controls (independent screenshot / recording and Fn switches, on by default); language (Follow System, or one of 12 languages — shown at the top of the Settings page; it also translates the Touch Bar's long-press messages); Accessibility permission status with a shortcut to System Settings (nothing else needs a permission); and the "why can't I see the Dock?" diagnosis
 - **How to use** — gestures and buttons
 - **About** — version, update check, product page and build diary links, Star button
 
