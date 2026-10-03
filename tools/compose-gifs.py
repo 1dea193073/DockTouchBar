@@ -80,6 +80,12 @@ def process_video_to_gif(mov_path, out_gif_path, fps=15):
     shutil.rmtree(temp_frames_dir, ignore_errors=True)
     shutil.rmtree(temp_framed_dir, ignore_errors=True)
 
+import sys
+if len(sys.argv) > 1 and sys.argv[1] == "agents":
+    # Vibecoding 版：几个编程工具的图标 空闲 → 工作中 → 做完（tools/make-agent-gif.sh 录好 agents.mov 后调用）
+    process_video_to_gif(os.path.join(BUILD_DIR, "agents.mov"), os.path.join(OUT_DIR, "vibe-agents.gif"), fps=12)
+    sys.exit(0)
+
 for name in ["idle", "spring", "summer", "autumn", "winter"]:
     mov = os.path.join(BUILD_DIR, f"{name}.mov")
     if os.path.exists(mov):

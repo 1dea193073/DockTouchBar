@@ -4,6 +4,7 @@
 //   PREVIEW_DEMO=1        用系统自带 App 做示例，不读你自己的 Dock（做 README 示意图时用）
 //   PREVIEW_AGENT=2       所有 App 都画状态层（交替“工作中 / 做完”），看每个图标的主题色边框
 //   PREVIEW_AGENT=1       给 Safari / Notes 画“AI 助手工作中”、给 Messages 画“做完了”的状态层（Vibecoding 版）
+//   PREVIEW_AGENT_TIMELINE=1:working,4.4:done  配合 PREVIEW_AGENT_APPS 和 PREVIEW_LIVE：这些图标开始是空闲，到点依次变成工作中、做完（录 README 动图用，见 tools/make-agent-gif.sh）
 //   PREVIEW_PRESS_INDEX=n 让第 n 个图标显示长按退出的进度条
 //   PREVIEW_PROGRESS=p    配合上一项，把长按提示定格在倒计时走到 p（0…1）的样子，默认 0.5
 //   PREVIEW_WIDE=1        把示例图标翻倍，撑满整条（看长按提示靠左的效果）
@@ -141,7 +142,8 @@ if env["PREVIEW_AGENT"] == "1", var tiles = DockModel.previewTiles {
 if let list = env["PREVIEW_AGENT_APPS"], var tiles = DockModel.previewTiles {
     for (offset, path) in list.split(separator: ",").enumerated() where 4 + offset < tiles.count - 2 {
         tiles[4 + offset] = DockTile(kind: .app, url: URL(fileURLWithPath: String(path)), bundleID: "preview.agent.\(offset)",
-                                     isRunning: true, isFrontmost: false, agentState: .working)
+                                     isRunning: true, isFrontmost: false,
+                                     agentState: env["PREVIEW_AGENT_TIMELINE"] == nil ? .working : .idle)
     }
     DockModel.previewTiles = tiles
 }
@@ -186,6 +188,21 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
         if let index = env["PREVIEW_PRESS_INDEX"].flatMap(Int.init) {
             (scrubber.itemViewForItem(at: index) as? DockTileView)?.showPressed()
             controller.showQuitHint(forItemAt: index, appName: "Messages", duration: 3)
+        }
+        if let timeline = env["PREVIEW_AGENT_TIMELINE"] {
+            for step in timeline.split(separator: ",") {
+                let parts = step.split(separator: ":")
+                guard parts.count == 2, let seconds = Double(parts[0]) else { continue }
+                let state: AgentState = parts[1] == "working" ? .working : parts[1] == "done" ? .done : .idle
+                DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+                    DockModel.previewTiles = DockModel.previewTiles?.map { tile in
+                        var tile = tile
+                        if tile.bundleID?.hasPrefix("preview.agent.") == true { tile.agentState = state }
+                        return tile
+                    }
+                    controller.reload()
+                }
+            }
         }
         print("WINDOW \(window.windowNumber)")
         fflush(stdout)

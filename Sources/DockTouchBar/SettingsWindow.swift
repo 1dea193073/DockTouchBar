@@ -637,7 +637,10 @@ struct PairingPage: View {
 
     private func status(_ seen: AgentActivity?) -> String {
         guard let seen else { return L10n.tr("待验证：还没收到它发来的事件", "Pending: no events received yet") }
-        let ago = RelativeDateTimeFormatter().localizedString(for: seen.date, relativeTo: Date())
+        // “几分钟前”按 App 里选的语言显示，不跟系统语言（英文界面不能冒出“分钟前”）。
+        let formatter = RelativeDateTimeFormatter()
+        if L10n.language != .system { formatter.locale = Locale(identifier: L10n.language.rawValue) }
+        let ago = formatter.localizedString(for: seen.date, relativeTo: Date())
         var app = ""
         if let id = seen.bundleID, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
             app = " · " + FileManager.default.displayName(atPath: url.path)
