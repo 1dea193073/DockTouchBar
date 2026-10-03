@@ -5,13 +5,40 @@ import AppKit
 /// 形状用图标自己的轮廓裁，所以圆角处不会溢出。动画由系统在自己的进程里播放，App 本身不会被唤醒。
 final class AgentOverlayLayer: CALayer {
     private static let green = CGColor(srgbRed: 0.17, green: 1.0, blue: 0.53, alpha: 1)
-    private static let cellWidth: CGFloat = 4.5
-    private static let cellHeight: CGFloat = 5.5
-    /// 字符带一个周期的行数；一个周期里有两股雨，各自带一条尾巴。
-    private static let rows = 12
-    private static let variants = 3
-    /// 半角片假名加数字，和电影里的字符雨一个味道。
-    private static let glyphs = Array("ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜ0123456789")
+    // 字符雨在“设备像素”里手绘：Touch Bar 的图标只有 56 像素宽，用字体渲染会糊成一团，
+    // 所以每个字符是 5×7 的点阵，整数像素对齐，边缘利落。
+    private static let glyphW = 5, glyphH = 7
+    /// 字符带一列的像素宽（字符左右各留一点给光晕）、每行的像素高、一个周期的行数。
+    private static let stripW = 9, rowPitch = 9, rows = 16
+    /// 列间距（pt）：7 像素。
+    private static let columnPitch: CGFloat = 3.5
+    private static let variants = 4
+    private static let glyphBitmaps: [[String]] = {
+        // 半角片假名的简化点阵 + 数字，像电影里一样整体左右镜像。
+        let art: [[String]] = [
+            ["#####", "...#.", "..#..", ".##..", "#.#..", "..#..", "..#.."],
+            ["...#.", "..##.", ".#.#.", "#..#.", "...#.", "...#.", "...#."],
+            ["..#..", "#####", "#...#", "#...#", "....#", "...#.", "..#.."],
+            ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"],
+            ["...#.", "#####", "..##.", ".#.#.", "#..#.", "...#.", "..#.."],
+            [".#...", "#####", ".#..#", ".#..#", "#...#", "....#", "...#."],
+            ["..#..", ".####", "..#..", "#####", "..#..", "..#..", "...##"],
+            ["..#..", ".#..#", "#...#", "....#", "...#.", "..#..", ".#..."],
+            ["#####", "....#", "....#", "....#", "....#", "....#", "#####"],
+            ["..#..", "#####", "..#..", "..#..", "#####", "..#..", "..#.."],
+            [".#.#.", ".#.#.", "#...#", "#...#", "#...#", "#...#", "#...#"],
+            ["#...#", "#...#", "#...#", "#...#", "....#", "...#.", "..#.."],
+            [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+            ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+            [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+            ["#####", "...#.", "..#..", "...#.", "....#", "#...#", ".###."],
+            ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+            ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+            ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+            [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+        ]
+        return art.map { $0.map { String($0.reversed()) } }
+    }()
 
     private let shade = CAGradientLayer()
     private let rain = CALayer()
@@ -37,15 +64,16 @@ final class AgentOverlayLayer: CALayer {
     private func commonInit() {
         contentsScale = 2
         // 黑色渐变：从图标中间（透明）到底部（最黑）。
-        shade.colors = [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0.4), CGColor(gray: 0, alpha: 0.9)]
-        shade.locations = [0, 0.55, 1]
+        // 整个图标压暗，下重上轻：到一半的位置已经很黑，字符才跳得出来；顶部留一点原图，认得出是哪个 App。
+        shade.colors = [CGColor(gray: 0, alpha: 0.3), CGColor(gray: 0, alpha: 0.7), CGColor(gray: 0, alpha: 0.95)]
+        shade.locations = [0, 0.5, 1]
         shade.startPoint = CGPoint(x: 0.5, y: 1)
         shade.endPoint = CGPoint(x: 0.5, y: 0)
         shade.contentsScale = 2
         rain.masksToBounds = true
         rain.contentsScale = 2
         // 字符雨整体的透明度：顶部几乎看不见，往下越来越亮。
-        rainFade.colors = [CGColor(gray: 1, alpha: 0), CGColor(gray: 1, alpha: 0.35), CGColor(gray: 1, alpha: 1)]
+        rainFade.colors = [CGColor(gray: 1, alpha: 0.4), CGColor(gray: 1, alpha: 0.75), CGColor(gray: 1, alpha: 1)]
         rainFade.locations = [0, 0.5, 1]
         rainFade.startPoint = CGPoint(x: 0.5, y: 1)
         rainFade.endPoint = CGPoint(x: 0.5, y: 0)
@@ -56,6 +84,14 @@ final class AgentOverlayLayer: CALayer {
         okText.foregroundColor = Self.green
         okText.alignmentMode = .left
         okText.contentsScale = 2
+        okText.shadowColor = Self.green
+        okText.shadowRadius = 3
+        okText.shadowOpacity = 0.95
+        okText.shadowOffset = .zero
+        cursor.shadowColor = Self.green
+        cursor.shadowRadius = 3
+        cursor.shadowOpacity = 0.95
+        cursor.shadowOffset = .zero
         cursor.backgroundColor = Self.green
         shape.contentsGravity = .resizeAspect
         shape.contentsScale = 2
@@ -83,7 +119,7 @@ final class AgentOverlayLayer: CALayer {
         cursor.isHidden = true
         guard state != .idle else { return }
 
-        shade.frame = CGRect(x: glyph.minX, y: glyph.minY, width: glyph.width, height: glyph.height * 0.55)
+        shade.frame = glyph
         switch state {
         case .working: startRain(in: glyph)
         case .done: showOK(in: glyph)
@@ -95,34 +131,37 @@ final class AgentOverlayLayer: CALayer {
         rain.isHidden = false
         rain.frame = area
         rainFade.frame = rain.bounds
-        let columns = max(2, Int(area.width / Self.cellWidth))
-        let offset = (area.width - CGFloat(columns) * Self.cellWidth) / 2
-        let period = CGFloat(Self.rows) * Self.cellHeight
+        let columns = max(3, Int(area.width / Self.columnPitch))
+        let offset = (area.width - CGFloat(columns) * Self.columnPitch) / 2
+        let periodPt = CGFloat(Self.rows * Self.rowPitch) / 2
         for column in 0..<columns {
             var generator = SeededGenerator(seed: UInt64(column) &* 7919 &+ 17)
-            let images = (0..<Self.variants).compactMap { _ in Self.strip(seed: &generator) }
+            // 远近感：有的列又暗又慢，有的又亮又快。
+            let depth = CGFloat.random(in: 0.65...1, using: &generator)
+            let images = Self.stripVariants(seed: &generator)
             let strip = CALayer()
             strip.contentsScale = 2
+            strip.magnificationFilter = .nearest
+            strip.minificationFilter = .nearest
             strip.contents = images.first
-            strip.frame = CGRect(x: offset + CGFloat(column) * Self.cellWidth, y: 0,
-                                 width: Self.cellWidth, height: period * 2)
-            // 每列速度不同、起点错开；字符隔一会儿换一版，像在不停变化。
+            strip.opacity = Float(depth)
+            strip.frame = CGRect(x: offset + CGFloat(column) * Self.columnPitch - 0.5, y: 0,
+                                 width: CGFloat(Self.stripW) / 2, height: periodPt * 2)
             let fall = CABasicAnimation(keyPath: "position.y")
             fall.fromValue = 0
-            fall.toValue = -period
+            fall.toValue = -periodPt
             fall.isAdditive = true
-            fall.duration = Double(period) / Double(30 + (column * 7) % 22)
+            fall.duration = Double(periodPt) / Double(34 + 36 * depth)
             fall.repeatCount = .infinity
-            fall.timeOffset = Double(column) * 0.41
+            fall.timeOffset = Double(column) * 0.53
             strip.add(fall, forKey: "fall")
-            if images.count > 1 {
-                let flicker = CAKeyframeAnimation(keyPath: "contents")
-                flicker.values = images
-                flicker.calculationMode = .discrete
-                flicker.duration = 0.5 + Double(column % 3) * 0.17
-                flicker.repeatCount = .infinity
-                strip.add(flicker, forKey: "flicker")
-            }
+            // 字符原地不停变：几版图轮流换，和下落同时进行。
+            let flicker = CAKeyframeAnimation(keyPath: "contents")
+            flicker.values = images
+            flicker.calculationMode = .discrete
+            flicker.duration = 0.55 + Double(column % 3) * 0.2
+            flicker.repeatCount = .infinity
+            strip.add(flicker, forKey: "flicker")
             rain.addSublayer(strip)
         }
     }
@@ -145,40 +184,65 @@ final class AgentOverlayLayer: CALayer {
         cursor.add(blink, forKey: "blink")
     }
 
-    /// 一条两个周期长的字符带：每个周期里有两股雨，雨头（最下面一格）近乎白色，尾巴往上由亮绿渐隐。
-    /// 字符带整体往下走，周期衔接处看不出接缝。
-    private static func strip(seed: inout SeededGenerator) -> CGImage? {
-        let period = CGFloat(rows) * cellHeight
-        let pixelsWide = Int(cellWidth * 2), pixelsHigh = Int(period * 2 * 2)
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixelsWide, pixelsHigh: pixelsHigh,
-                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-              let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = context
-        context.cgContext.scaleBy(x: 2, y: 2)
-        let font = NSFont.monospacedSystemFont(ofSize: 4.6, weight: .bold)
-        let firstHead = Int.random(in: 0..<rows, using: &seed)
-        for head in [firstHead, (firstHead + rows / 2) % rows] {
-            let trail = Int.random(in: 4...6, using: &seed)
-            for step in 0..<trail {
-                let char = String(glyphs.randomElement(using: &seed) ?? "0")
-                let color: NSColor = step == 0
-                    ? NSColor(srgbRed: 0.85, green: 1, blue: 0.92, alpha: 1)
-                    : NSColor(srgbRed: 0.1, green: 1.0, blue: 0.45, alpha: 1 - CGFloat(step) / CGFloat(trail + 1))
-                // 在两个周期里各画一遍，越界的行绕回字符带另一端。
-                for copy in 0..<2 {
-                    var row = head - step
-                    if row < 0 { row += rows }
-                    row += copy * rows
-                    let y = period * 2 - CGFloat(row + 1) * cellHeight
-                    NSString(string: char).draw(at: CGPoint(x: 0.3, y: y),
-                                                withAttributes: [.font: font, .foregroundColor: color])
+    /// 一列字符带的几个版本：同一个雨头、同一条尾巴，只有一部分字符不一样，轮流播放就是字符在原地跳变。
+    /// 雨头近乎白色并带一圈绿光晕，尾巴按曲线渐隐成深绿（拖影），越靠近雨头越亮。
+    private static func stripVariants(seed: inout SeededGenerator) -> [CGImage] {
+        // 一个周期里两股雨，各带一条尾巴，错开半个周期。
+        let head = Int.random(in: 0..<rows, using: &seed)
+        let streams = [(head: head, trail: Int.random(in: 6...9, using: &seed)),
+                       (head: (head + rows / 2) % rows, trail: Int.random(in: 6...9, using: &seed))]
+        var base = (0..<rows).map { _ in Int.random(in: 0..<glyphBitmaps.count, using: &seed) }
+        var images: [CGImage] = []
+        for _ in 0..<variants {
+            // 每一版换掉约 40% 的字符，雨头那格总换。
+            for row in 0..<rows where streams.contains(where: { $0.head == row }) || Double.random(in: 0..<1, using: &seed) < 0.4 {
+                base[row] = Int.random(in: 0..<glyphBitmaps.count, using: &seed)
+            }
+            if let image = drawStrip(streams: streams, glyphs: base) { images.append(image) }
+        }
+        return images
+    }
+
+    private static func drawStrip(streams: [(head: Int, trail: Int)], glyphs: [Int]) -> CGImage? {
+        let pixelsHigh = rows * rowPitch * 2
+        guard let context = CGContext(data: nil, width: stripW, height: pixelsHigh, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.setShouldAntialias(false)
+        func paint(_ rowIndex: Int, step: Int, trail: Int) {
+            let art = glyphBitmaps[glyphs[((rowIndex % rows) + rows) % rows]]
+            let top = pixelsHigh - rowIndex * rowPitch  // 这一行上沿（位图原点在左下）
+            let fade = pow(1 - CGFloat(step) / CGFloat(trail), 1.7)
+            let isHead = step == 0
+            // 光晕：雨头和紧跟着的一格，把字符向四周胀一圈，用半透明的绿画在底下。
+            if step <= 1 {
+                context.setFillColor(CGColor(srgbRed: 0.1, green: 1, blue: 0.4, alpha: isHead ? 0.5 : 0.22))
+                for (r, line) in art.enumerated() {
+                    for (c, ch) in line.enumerated() where ch == "#" {
+                        context.fill(CGRect(x: 2 + c - 1, y: top - 1 - r - 1, width: 3, height: 3))
+                    }
+                }
+            }
+            let color = isHead
+                ? CGColor(srgbRed: 0.88, green: 1, blue: 0.93, alpha: 1)
+                : CGColor(srgbRed: 0.05 + 0.25 * fade, green: 0.55 + 0.45 * fade, blue: 0.25 + 0.2 * fade, alpha: 0.2 + 0.8 * fade)
+            context.setFillColor(color)
+            for (r, line) in art.enumerated() {
+                for (c, ch) in line.enumerated() where ch == "#" {
+                    context.fill(CGRect(x: 2 + c, y: top - 1 - r, width: 1, height: 1))
                 }
             }
         }
-        NSGraphicsContext.restoreGraphicsState()
-        return rep.cgImage
+        // 字符带每隔 `rows` 行重复一次（两个周期），尾巴越过边界的部分落到另一个周期里，整体往下走时看不出接缝。
+        for (head, trail) in streams {
+            for step in stride(from: trail - 1, through: 0, by: -1) {
+                for cycle in -1...1 {
+                    let index = head - step + cycle * rows
+                    if (0..<(rows * 2)).contains(index) { paint(index, step: step, trail: trail) }
+                }
+            }
+        }
+        return context.makeImage()
     }
 }
 
