@@ -134,6 +134,8 @@ enum AgentHookInstaller {
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        // 早期版本的脚本，配置都迁到新脚本之后就没人用了。
+        try? FileManager.default.removeItem(at: supportDirectory.appendingPathComponent("claude-hook.sh"))
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
     }
 }
