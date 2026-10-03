@@ -25,6 +25,8 @@ if env["RENDER_FAKE"] == "1" {
         ("qoder", "Qoder", "hook", "com.qoder.app"),
         ("workbuddy", "WorkBuddy", "hook", "com.tencent.workbuddy.mac"),
         ("antigravity", "Antigravity", "instructions", "com.google.antigravity"),
+        ("qwenwork", "Qwen Work", "instructions", "cn.qwenwork.desktop.mac"),
+        ("doubao", "Doubao Work", "passive", "com.work.pc.doubao"),
     ]
     var activity: [String: [String: Any]] = [:]
     for (index, agent) in fake.enumerated() {
