@@ -40,7 +40,6 @@ final class AgentOverlayLayer: CALayer {
         return art.map { $0.map { String($0.reversed()) } }
     }()
 
-    private let shade = CAGradientLayer()
     private let rain = CALayer()
     private let rainFade = CAGradientLayer()
     /// “OK” 两个字（1 像素笔画的点阵）和后面闪烁的光标。
@@ -52,6 +51,8 @@ final class AgentOverlayLayer: CALayer {
     /// 被图标轮廓裁剪的内容（渐变、字符雨、OK）；轮廓线本身不裁，光晕才能往外晕开一点。
     private let content = CALayer()
     private let outline = CALayer()
+    /// 下巴上的指示灯：工作中像读磁盘一样闪，做完常亮。盖在边框上面（边框的下巴是不透明的）。
+    private let led = CALayer()
 
     private var applied: (state: AgentState, glyph: CGRect, key: URL?)?
 
@@ -70,16 +71,10 @@ final class AgentOverlayLayer: CALayer {
     private func commonInit() {
         contentsScale = 2
         // 黑色渐变：从图标中间（透明）到底部（最黑）。
-        // 整个图标适度压暗，下重上轻：字符跳得出来，同时图标本身还看得清（再加一圈绿色轮廓线帮着认）。
-        shade.colors = [CGColor(gray: 0, alpha: 0.0), CGColor(gray: 0, alpha: 0.22), CGColor(gray: 0, alpha: 0.55)]
-        shade.locations = [0, 0.5, 1]
-        shade.startPoint = CGPoint(x: 0.5, y: 1)
-        shade.endPoint = CGPoint(x: 0.5, y: 0)
-        shade.contentsScale = 2
         rain.masksToBounds = true
         rain.contentsScale = 2
         // 字符雨整体的透明度：顶部几乎看不见，往下越来越亮。
-        rainFade.colors = [CGColor(gray: 1, alpha: 0.4), CGColor(gray: 1, alpha: 0.85), CGColor(gray: 1, alpha: 1)]
+        rainFade.colors = [CGColor(gray: 1, alpha: 0.5), CGColor(gray: 1, alpha: 0.9), CGColor(gray: 1, alpha: 1)]
         rainFade.locations = [0, 0.5, 1]
         rainFade.startPoint = CGPoint(x: 0.5, y: 1)
         rainFade.endPoint = CGPoint(x: 0.5, y: 0)
@@ -91,7 +86,6 @@ final class AgentOverlayLayer: CALayer {
         cursor.backgroundColor = Self.green
         shape.contentsGravity = .resizeAspect
         shape.contentsScale = 2
-        content.addSublayer(shade)
         content.addSublayer(rain)
         content.addSublayer(okText)
         content.addSublayer(cursor)
@@ -101,6 +95,12 @@ final class AgentOverlayLayer: CALayer {
         outline.contentsScale = 2
         outline.magnificationFilter = .nearest
         addSublayer(outline)
+        led.backgroundColor = Self.green
+        led.shadowColor = Self.green
+        led.shadowRadius = 2
+        led.shadowOpacity = 0.9
+        led.shadowOffset = .zero
+        addSublayer(led)
         isHidden = true
     }
 
@@ -114,21 +114,35 @@ final class AgentOverlayLayer: CALayer {
         outline.frame = content.frame
         shape.frame = content.bounds
         shape.contents = icon
-        outline.contents = icon.flatMap { Self.outlineImage(of: $0, done: state == .done) }
+        let built = icon.flatMap { Self.screenFrame(of: $0) }
+        outline.contents = built?.image
         isHidden = state == .idle
         rain.sublayers?.forEach { $0.removeFromSuperlayer() }
         cursor.removeAllAnimations()
+        led.removeAllAnimations()
         rain.isHidden = true
         okText.isHidden = true
         cursor.isHidden = true
+        led.isHidden = true
         guard state != .idle else { return }
 
-        // 字符雨、渐变只在下巴上面的“屏幕”里。
-        let screen = CGRect(x: glyph.minX, y: glyph.minY + Self.chinHeight, width: glyph.width, height: glyph.height - Self.chinHeight)
-        shade.frame = screen
+        // 字符雨和 OK 都在“屏幕”里；屏幕的位置由边框那张图量出来。
+        let screen = built?.screen ?? CGRect(x: glyph.minX, y: glyph.minY + Self.chinHeight,
+                                             width: glyph.width, height: glyph.height - Self.chinHeight)
+        // 指示灯：下巴左边 1pt 见方。
+        led.isHidden = false
+        led.frame = CGRect(x: glyph.minX + glyph.width * 0.2, y: glyph.minY + Self.chinHeight / 2 - 0.5, width: 1, height: 1)
         switch state {
-        case .working: startRain(in: screen)
-        case .done: showOK(in: screen)
+        case .working:
+            startRain(in: screen)
+            let flicker = CAKeyframeAnimation(keyPath: "opacity")
+            flicker.values = [1, 0.15, 1, 1, 0.15, 0.15, 1, 0.15]
+            flicker.calculationMode = .discrete
+            flicker.duration = 1.2
+            flicker.repeatCount = .infinity
+            led.add(flicker, forKey: "read")
+        case .done:
+            showOK(in: screen)
         case .idle: break
         }
     }
@@ -175,14 +189,16 @@ final class AgentOverlayLayer: CALayer {
     private func showOK(in area: CGRect) {
         okText.isHidden = false
         cursor.isHidden = false
-        // 1 像素笔画：字 5×7 像素（外面再描一圈 1 像素的黑边，叠在任何图标上都看得清），光标 2×7 像素。
+        // 1 像素笔画、居中放在屏幕正中：字 9×11 像素（外面描一圈 1 像素的半透明黑边），光标 2×11 像素。
         let pixel: CGFloat = 0.5
-        let textSize = CGSize(width: 13 * pixel, height: 9 * pixel)
-        let total = textSize.width + 2 * pixel + 2 * pixel
-        let left = (area.midX - total / 2).rounded(.toNearestOrEven)
-        let bottom = area.minY + 1.5
-        okText.frame = CGRect(x: left, y: bottom - pixel, width: textSize.width, height: textSize.height)
-        cursor.frame = CGRect(x: left + textSize.width + pixel, y: bottom, width: 2 * pixel, height: 7 * pixel)
+        let text = okImageSize
+        let textWidth = CGFloat(text.width) * pixel, textHeight = CGFloat(text.height) * pixel
+        let cursorWidth = 2 * pixel, gap = 1 * pixel
+        let total = textWidth + gap + cursorWidth
+        let left = area.midX - total / 2
+        let bottom = area.midY - textHeight / 2
+        okText.frame = CGRect(x: left, y: bottom, width: textWidth, height: textHeight)
+        cursor.frame = CGRect(x: left + textWidth + gap, y: bottom + pixel, width: cursorWidth, height: 11 * pixel)
         let blink = CAKeyframeAnimation(keyPath: "opacity")
         blink.values = [1, 1, 0, 0]
         blink.keyTimes = [0, 0.5, 0.5, 1]
@@ -190,25 +206,34 @@ final class AgentOverlayLayer: CALayer {
         blink.duration = 1
         blink.repeatCount = .infinity
         cursor.add(blink, forKey: "blink")
+        led.opacity = 1
     }
 
-    /// “OK” 的点阵图：每笔 1 像素，绿色，外面描一圈半透明黑边。13×9 像素（字 5×7 加上边）。
+    private static let okImageSize = (width: 21, height: 13)
+    private var okImageSize: (width: Int, height: Int) { Self.okImageSize }
+
+    /// “OK” 的点阵图：每笔 1 像素，绿色，外面描一圈半透明黑边。字 9×11 像素，整张 21×13。
     private static func okImage() -> CGImage? {
-        let o = [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."]
-        let k = ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"]
-        let width = 13, height = 9
+        let (width, height) = okImageSize
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         var pixels = Set<[Int]>()
-        for (letter, art) in [(0, o), (1, k)] {
-            for (row, line) in art.enumerated() {
-                for (column, ch) in line.enumerated() where ch == "#" {
-                    pixels.insert([1 + letter * 6 + column, 1 + (6 - row)])
-                }
-            }
+        func add(_ letter: Int, _ column: Int, _ row: Int) { pixels.insert([1 + letter * 10 + column, 1 + (10 - row)]) }
+        // O：圆角的框。
+        for row in 0...10 { for column in 0...8 {
+            let onBorder = row == 0 || row == 10 || column == 0 || column == 8
+            let corner = (row == 0 || row == 10) && (column == 0 || column == 8)
+            if onBorder && !corner { add(0, column, row) }
+        } }
+        // K：左边一竖，中间往右上、右下各一条斜线。
+        for row in 0...10 { add(1, 0, row) }
+        for row in 0...5 {
+            let column = 1 + Int((Double(5 - row) * 7.0 / 5.0).rounded())
+            add(1, column, row)
+            add(1, column, 10 - row)
         }
-        context.setFillColor(CGColor(gray: 0, alpha: 0.6))
+        context.setFillColor(CGColor(gray: 0, alpha: 0.55))
         for p in pixels {
             for dx in -1...1 { for dy in -1...1 where !pixels.contains([p[0] + dx, p[1] + dy]) {
                 context.fill(CGRect(x: p[0] + dx, y: p[1] + dy, width: 1, height: 1))
@@ -219,12 +244,14 @@ final class AgentOverlayLayer: CALayer {
         return context.makeImage()
     }
 
-    /// 小电脑（经典 Macintosh）风格的 1 像素边框，原图标尽量不遮：
-    /// - 沿图标轮廓一圈 1 像素的奶白色边，上亮下暗（屏幕玻璃那头亮一点）；
-    /// - 底部 7 像素是“磁盘区域”（下巴）：浅白色的一条，上面一笔 1 像素的软驱槽和一个小指示灯，灯平时是奶白，做完变绿。
-    private static func outlineImage(of icon: CGImage, done: Bool) -> CGImage? {
+    /// 老式 CRT 小电脑（经典 Macintosh）的外壳，盖在图标上，图标自己就是“屏幕里显示的内容”：
+    /// - 机身：沿图标轮廓一圈 1 像素奶白色边；屏幕周围一圈浅奶白的边框；
+    /// - 屏幕：四边一样的暗色细框（圆角，像显像管的玻璃边），里面一圈由深到浅的内阴影，左上角有一道弧形反光；
+    /// - 下巴：底部 7 像素浅白色的一条，上面一笔软驱槽（指示灯另用一层，会闪）。
+    /// 返回边框图和屏幕里面可以放内容的范围（pt，原点左下）。
+    private static func screenFrame(of icon: CGImage) -> (image: CGImage, screen: CGRect)? {
         let w = icon.width, h = icon.height
-        guard w > 16, h > 16,
+        guard w > 24, h > 24,
               let source = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
@@ -246,30 +273,70 @@ final class AgentOverlayLayer: CALayer {
             output.setFillColor(color)
             output.fill(CGRect(x: x, y: y, width: 1, height: 1))
         }
-        // 图形实际的最低一行和左右范围（图标贴着画布底边，一般就是 0 和整个宽度）。
-        guard let floor = (0..<h).first(where: { y in (0..<w).contains { solid($0, y) } }) else { return nil }
-        let xs = (0..<w).filter { solid($0, floor + 6) }
+        // 图形实际的范围。
+        guard let floor = (0..<h).first(where: { y in (0..<w).contains { solid($0, y) } }),
+              let ceil = (0..<h).last(where: { y in (0..<w).contains { solid($0, y) } }) else { return nil }
+        let midRow = (floor + ceil) / 2
+        let xs = (0..<w).filter { solid($0, midRow) }
         guard let left = xs.first, let right = xs.last else { return nil }
         let chin = Int(chinHeight * 2)
+        let bezel = 2
+
+        // 屏幕：下巴上面、机身边框里面的圆角矩形。
+        let x0 = left + bezel + 1, x1 = right - bezel - 1
+        let y0 = floor + chin + bezel, y1 = ceil - bezel - 1
+        let radius = 5
+        func inside(_ x: Int, _ y: Int, inset: Int) -> Bool {
+            let ax0 = x0 + inset, ax1 = x1 - inset, ay0 = y0 + inset, ay1 = y1 - inset
+            guard x >= ax0, x <= ax1, y >= ay0, y <= ay1 else { return false }
+            let r = max(radius - inset, 0)
+            let dx = max(ax0 + r - x, 0, x - (ax1 - r)), dy = max(ay0 + r - y, 0, y - (ay1 - r))
+            return dx * dx + dy * dy <= r * r
+        }
         let cream = { (alpha: CGFloat) in CGColor(srgbRed: 0.93, green: 0.91, blue: 0.82, alpha: alpha) }
+
         for y in 0..<h {
             let t = CGFloat(y) / CGFloat(h - 1)
             for x in 0..<w where solid(x, y) {
                 if y < floor + chin {
-                    plot(x, y, cream(0.9))               // 下巴：浅白色
+                    plot(x, y, cream(0.9))                                   // 下巴：浅白色
                 } else if touchesEmpty(x, y) {
-                    plot(x, y, cream(0.45 + 0.4 * t))    // 边：上亮下暗
+                    plot(x, y, cream(0.5 + 0.4 * t))                         // 机身外缘：上亮下暗
+                } else if !inside(x, y, inset: 0) {
+                    plot(x, y, cream(0.28 + 0.2 * t))                        // 屏幕周围的边框：淡淡的奶白
+                } else if !inside(x, y, inset: 1) {
+                    plot(x, y, CGColor(gray: 0.04, alpha: 0.85))             // 玻璃边：四边一样的暗色细框
+                } else if !inside(x, y, inset: 2) {
+                    plot(x, y, CGColor(gray: 0, alpha: 0.38))                // 内阴影，由深到浅
+                } else if !inside(x, y, inset: 3) {
+                    plot(x, y, CGColor(gray: 0, alpha: 0.24))
+                } else if !inside(x, y, inset: 5) {
+                    plot(x, y, CGColor(gray: 0, alpha: 0.12))
                 }
             }
         }
-        // 下巴上的细节，各 1 像素：软驱槽（右边一条）和指示灯（左边一点）。
+        // 左上角的弧形反光：沿着内阴影里面一圈，越靠近角越亮，往两边渐隐。
+        let glareReach = 26
+        for y in y0...y1 {
+            for x in x0...x1 where inside(x, y, inset: 4) && !inside(x, y, inset: 5) {
+                let distance = (x - x0) + (y1 - y)
+                guard distance < glareReach else { continue }
+                plot(x, y, CGColor(gray: 1, alpha: 0.7 * (1 - CGFloat(distance) / CGFloat(glareReach))))
+            }
+        }
+        // 反光的亮点：角里一小段斜线。
+        for i in 0..<3 { plot(x0 + 9 + i, y1 - 9 - i, CGColor(gray: 1, alpha: 0.55)) }
+
+        // 下巴上的软驱槽：右边一条 1 像素的线。
         let ink = CGColor(gray: 0.1, alpha: 0.75)
         let span = right - left
         let row = floor + chin / 2
         for x in (left + span * 11 / 20)...(left + span * 17 / 20) { plot(x, row, ink) }
-        plot(left + span / 5, row, done ? green : ink)
-        plot(left + span / 5 + 1, row, done ? green : ink)
-        return output.makeImage()
+
+        guard let image = output.makeImage() else { return nil }
+        let screen = CGRect(x: CGFloat(x0 + 2) / 2, y: CGFloat(y0 + 2) / 2,
+                            width: CGFloat(x1 - x0 - 3) / 2, height: CGFloat(y1 - y0 - 3) / 2)
+        return (image, screen)
     }
 
     /// 一列字符带的几个版本：同一个雨头、同一条尾巴，只有一部分字符不一样，轮流播放就是字符在原地跳变。
