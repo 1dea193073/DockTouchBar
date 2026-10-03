@@ -124,7 +124,13 @@ if env["PREVIEW_AGENT"] == "2", var tiles = DockModel.previewTiles {
 if env["PREVIEW_AGENT"] == "1", var tiles = DockModel.previewTiles {
     for index in tiles.indices {
         switch tiles[index].bundleID {
-        case "com.apple.Safari", "com.apple.Notes": tiles[index].agentState = .working
+        case "com.apple.Safari", "com.apple.Notes":
+            tiles[index].agentState = .working
+            // PREVIEW_AGENT_APP=/Applications/Xxx.app：把 Safari 那格换成这个 App 的图标，看它在“工作中”的样子。
+            if tiles[index].bundleID == "com.apple.Safari", let path = env["PREVIEW_AGENT_APP"] {
+                tiles[index] = DockTile(kind: .app, url: URL(fileURLWithPath: path), bundleID: "preview.agent",
+                                        isRunning: true, isFrontmost: false, agentState: .working)
+            }
         case "com.apple.MobileSMS": tiles[index].agentState = .done
         default: break
         }

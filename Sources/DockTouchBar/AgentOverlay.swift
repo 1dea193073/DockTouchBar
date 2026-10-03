@@ -227,10 +227,12 @@ final class AgentOverlayLayer: CALayer {
         return context.makeImage()
     }
 
-    /// 把图标重画成 8-bit 风格：缩到 28×28 个色块（每块 2 像素），每个颜色通道只留 4 档（共 64 色），
-    /// 半透明的格子要么实心要么留空。放大时不插值，一格就是一个大像素。
+    /// 把图标重画成 8-bit 风格：缩到 28×28 个色块（每块 2 像素），颜色用真正的 8 位色板 RGB332
+    /// （红 8 档、绿 8 档、蓝 4 档，共 256 色，早期 VGA/Mac 的色彩深度）；半透明的格子要么实心要么留空。放大时不插值，一格就是一个大像素。
+    /// 每通道只留 4 档的话橙色会被量化成红色（Claude 的图标就变红了），RGB332 能保住色相。
     private static func pixelated(_ icon: CGImage) -> CGImage? {
-        let n = 28, levels: CGFloat = 3
+        let n = 28
+        let levels: [CGFloat] = [7, 7, 3]
         guard let small = CGContext(data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
                                     space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
@@ -243,7 +245,7 @@ final class AgentOverlayLayer: CALayer {
             guard alpha >= 0.5 else { data[o] = 0; data[o + 1] = 0; data[o + 2] = 0; data[o + 3] = 0; continue }
             for c in 0..<3 {
                 let straight = min(CGFloat(data[o + c]) / 255 / alpha, 1)
-                data[o + c] = UInt8((straight * levels).rounded() / levels * 255)
+                data[o + c] = UInt8((straight * levels[c]).rounded() / levels[c] * 255)
             }
             data[o + 3] = 255
         }

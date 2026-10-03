@@ -64,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = item
 
         AgentMonitor.shared.start()
-        connectAgentHooksOnFirstLaunch()
+        prepareAgentPairing()
         applySettings()
         launched = true
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -78,21 +78,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Vibecoding 版第一次启动时，自动把装在这台电脑上的 AI 助手（Claude Code、Codex……）的 hook 接好，每个助手只做一次；
-    /// 之后用户在设置里点“断开”，就不会再自动装回来。已经接好的，每次启动顺手刷新脚本；指向旧脚本的，重新接一次。
-    private func connectAgentHooksOnFirstLaunch() {
-        // 转发脚本任何时候都在：配对智能体的提示词要调用它。
+    /// 转发脚本任何时候都在（配对提示词要调用它）；早期版本自动连接过的 Claude Code、Codex 补一份登记，列表里才看得到。
+    /// App 不再替任何助手改配置：新的接入都走“配对智能体”提示词。
+    private func prepareAgentPairing() {
         try? AgentHookInstaller.refreshScript()
-        for agent in AgentIntegration.all {
-            let flag = agent.id == "claude" ? "agentHooksAutoConnected" : "agentHooksAutoConnected.\(agent.id)"
-            if AgentHookInstaller.needsMigration(agent) {
-                try? AgentHookInstaller.install(agent)
-            } else if AgentHookInstaller.isInstalled(agent) {
-                try? AgentHookInstaller.refreshScript()
-            } else if !defaults.bool(forKey: flag), defaults.bool(forKey: Key.agentStatus), AgentHookInstaller.isPresent(agent) {
-                if (try? AgentHookInstaller.install(agent)) != nil { defaults.set(true, forKey: flag) }
-            }
-        }
+        AgentRegistry.migrateLegacyHooks()
     }
 
     /// 把保存的设置同步给 Dock。只在值真的变了才赋值，避免无谓的重绘。

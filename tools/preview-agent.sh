@@ -16,7 +16,7 @@ done
 swiftc -O "${SOURCES[@]}" tools/render-preview/main.swift -o build/tools/render-preview
 
 LOG="$(mktemp)"
-PREVIEW_DEMO=1 PREVIEW_AGENT=1 PREVIEW_LIVE=1 PREVIEW_LIVE_SECONDS=10 build/tools/render-preview /dev/null >"$LOG" 2>&1 &
+PREVIEW_DEMO=1 PREVIEW_AGENT=1 PREVIEW_AGENT_APP="${PREVIEW_AGENT_APP:-}" PREVIEW_LIVE=1 PREVIEW_LIVE_SECONDS=10 build/tools/render-preview /dev/null >"$LOG" 2>&1 &
 sleep "$WAIT"
 WINDOW="$(grep -o 'WINDOW [0-9]*' "$LOG" | cut -d' ' -f2)"
 [ -n "$WINDOW" ] || { echo "没有拿到预览窗口" >&2; cat "$LOG" >&2; exit 1; }

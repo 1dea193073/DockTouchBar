@@ -31,7 +31,7 @@ enum AgentPairingPrompt {
 
         【方案 A（优先）：用你所在软件自己的 hook / 生命周期回调】
         1. 查你所在软件的官方文档，确认它是否支持 hook 或事件回调（配置文件位置、格式、事件名）。不要凭记忆写。
-        2. 改任何配置前先备份。只增加，不删除、不修改我已有的 hook 和配置；文件如果不是合法格式，不要动它，告诉我。
+        2. 改任何配置前先备份。只增加，不删除、不修改我已有的 hook 和配置；文件如果不是合法格式，不要动它，告诉我。如果配置里已经有调用上面这个脚本的旧条目（以前的版本留下的），把它们更新成带你的 id 的写法，不要重复添加。
         3. 把上面 5 个事件映射到你软件里最接近的事件，让它们执行上面的脚本命令。
         4. 如果你的软件要求我审核或信任新增的 hook，告诉我具体要在哪里点什么。不要绕过，不要伪造信任。
 
@@ -74,7 +74,7 @@ enum AgentPairingPrompt {
 
         [Option A (preferred): use your host app's own hooks / lifecycle callbacks]
         1. Check the official docs of the app you run in for hooks or event callbacks (config file location, format, event names). Don't write from memory.
-        2. Back up any config before changing it. Only add; never delete or modify my existing hooks or settings. If a file isn't valid, leave it alone and tell me.
+        2. Back up any config before changing it. Only add; never delete or modify my existing hooks or settings. If a file isn't valid, leave it alone and tell me. If the config already contains older entries that call the script above (left by earlier versions), update them to the form with your id instead of adding duplicates.
         3. Map the 5 events above to the closest events in your app and make them run the script command above.
         4. If your app requires me to review or trust new hooks, tell me exactly where to click. Do not bypass it or fake trust.
 

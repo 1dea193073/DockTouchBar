@@ -23,6 +23,8 @@ struct AgentActivity: Equatable {
 enum AgentRegistry {
     static var directory: URL { AgentMonitor.supportDirectory.appendingPathComponent("agents", isDirectory: true) }
     static var logURL: URL { AgentMonitor.supportDirectory.appendingPathComponent("events.log") }
+    /// 每个智能体最近一次事件（App 自己写，重启和换日志都不丢），配对列表的“已验证”看它。
+    static var activityURL: URL { AgentMonitor.supportDirectory.appendingPathComponent("activity.json") }
 
     /// id 只能是小写字母、数字、短横线（也是登记文件名，不能带路径）。
     static func isValidID(_ id: String) -> Bool {
@@ -50,21 +52,40 @@ enum AgentRegistry {
         try? FileManager.default.removeItem(at: directory.appendingPathComponent("\(id).json"))
     }
 
-    /// 从事件日志里找每个智能体最近一次事件（日志是 `时间 事件 agent=… session=… pid=… app=…`，一行一个）。
+    /// 每个智能体最近一次事件。
     static func lastActivity() -> [String: AgentActivity] {
-        guard let text = try? String(contentsOf: logURL, encoding: .utf8) else { return [:] }
-        let formatter = ISO8601DateFormatter()
-        var result: [String: AgentActivity] = [:]
-        for line in text.split(separator: "\n") {
-            let fields = line.split(separator: " ")
-            guard fields.count >= 3, let date = formatter.date(from: String(fields[0])) else { continue }
-            func value(_ key: String) -> String? {
-                fields.first { $0.hasPrefix(key + "=") }.map { String($0.dropFirst(key.count + 1)) }
-            }
-            guard let agent = value("agent"), agent != "-" else { continue }
-            let app = value("app").flatMap { $0 == "-" ? nil : $0 }
-            result[agent] = AgentActivity(date: date, event: String(fields[1]), bundleID: app)
+        guard let data = try? Data(contentsOf: activityURL),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: [String: Any]] else { return [:] }
+        return json.compactMapValues { item in
+            guard let seconds = item["date"] as? Double, let event = item["event"] as? String else { return nil }
+            let app = (item["app"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return AgentActivity(date: Date(timeIntervalSince1970: seconds), event: event, bundleID: app)
         }
-        return result
+    }
+
+    /// 早期版本自动连接过的 Claude Code、Codex：它们的 hook 还在各自配置里工作，只是没有登记。
+    /// 启动时给它们补一份登记，配对列表里才看得到（只读配置，不改任何东西；已有登记的不动）。
+    static var homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+    @discardableResult static func migrateLegacyHooks() -> [String] {
+        let legacy: [(id: String, name: String, path: String)] = [
+            ("claude-code", "Claude Code", ".claude/settings.json"),
+            ("codex", "Codex", ".codex/hooks.json"),
+        ]
+        var created: [String] = []
+        for item in legacy {
+            let registration = directory.appendingPathComponent("\(item.id).json")
+            let config = homeDirectory.appendingPathComponent(item.path)
+            guard !FileManager.default.fileExists(atPath: registration.path),
+                  let text = try? String(contentsOf: config, encoding: .utf8),
+                  text.contains(AgentMonitor.supportDirectory.path), text.contains("-hook.sh") else { continue }
+            let json: [String: Any] = ["id": item.id, "name": item.name, "method": "hook", "files": [config.path],
+                                       "notes": "早期版本自动连接的 hook，启动时补上的登记"]
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            if let data = try? JSONSerialization.data(withJSONObject: json) {
+                try? data.write(to: registration, options: .atomic)
+                created.append(item.id)
+            }
+        }
+        return created
     }
 }

@@ -11,8 +11,8 @@ enum AgentState: Equatable {
 
 /// 接收各个助手的 hook 事件（本地 Unix socket），按“所在的 App”汇总成状态。
 ///
-/// 事件来自 `AgentHookInstaller` 写进各助手配置（~/.claude/settings.json、~/.codex/hooks.json）的 hook：每个事件一行
-/// `事件名 \t hook 进程的父进程号 \t Claude 传来的 JSON`。父进程号一路往上找，找到第一个有 Dock 图标的 App，
+/// 事件来自转发脚本 `agent-hook.sh`（各智能体按“配对智能体”提示词，用自己的 hook 或指令调用它）：每个事件一行
+/// `事件名[|智能体id] \t 脚本的父进程号 \t 智能体传来的 JSON（可为空）`。父进程号一路往上找，找到第一个有 Dock 图标的 App，
 /// 就是这次会话所在的 App（终端、VS Code、Claude 桌面版……）。
 final class AgentMonitor {
     static let shared = AgentMonitor()
@@ -34,8 +34,13 @@ final class AgentMonitor {
     private struct Session {
         var state: AgentState
         var lastEvent: Date
-        /// 配对智能体的 id（内置的 Claude Code / Codex 没有）。靠自觉调脚本的智能体不一定每次都发 Stop，所以对它们更宽容。
         var agent: String?
+        /// 靠自觉手动调脚本的智能体（会话 id 是它自己给的）：不一定每次都发对 Stop，所以 Stop/Interrupt 对它宽松收尾、超时也更短。
+        /// 用自己 hook 的（会话 id 来自 hook 的 JSON）是严格的：只处理自己的会话，允许多个会话同时在跑。
+        var lenient = false
+        /// 会话的聊天记录文件和开始时的大小。用户按 Esc 打断时 Claude Code 不发任何事件，但会往记录里追加
+        /// “[Request interrupted by user]”，从开始时的位置往后找这一句，找到就当被打断。
+        var transcript: (path: String, offset: UInt64)?
     }
 
     /// App 的 bundleID → 会话 ID → 会话。只在主线程读写。
@@ -43,8 +48,9 @@ final class AgentMonitor {
     private var listenFD: Int32 = -1
     private var acceptSource: DispatchSource?
     private var staleTimer: Timer?
+    private var interruptTimer: Timer?
     /// Stop 不会在用户按 Esc 打断时触发；工作中的会话超过这么久没有任何事件，就当没发生过，免得动画一直转。
-    /// 内置助手有 hook，每步都发心跳，给 10 分钟；配对智能体靠自觉调脚本，常常漏发，只给 3 分钟（提示词要求它每步发一次 PostToolUse 续期）。
+    /// 用 hook 的有心跳，给 10 分钟；手动调脚本的常常漏发，只给 3 分钟（提示词要求它每步发一次 PostToolUse 续期）。
     static let staleAfter: TimeInterval = 600
     static let pairedStaleAfter: TimeInterval = 180
 
@@ -103,6 +109,7 @@ final class AgentMonitor {
         acceptSource = source as? DispatchSource
 
         staleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.dropStaleSessions() }
+        interruptTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.scanTranscriptsForInterrupts() }
     }
 
     func stop() {
@@ -111,6 +118,8 @@ final class AgentMonitor {
         listenFD = -1
         staleTimer?.invalidate()
         staleTimer = nil
+        interruptTimer?.invalidate()
+        interruptTimer = nil
         unlink(Self.socketURL.path)
     }
 
@@ -136,50 +145,74 @@ final class AgentMonitor {
             let eventParts = parts[0].split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
             let event = String(eventParts[0])
             let agent = eventParts.count == 2 ? String(eventParts[1]) : nil
-            var sessionID: String?
-            if parts.count == 3, let json = try? JSONSerialization.jsonObject(with: Data(parts[2].utf8)) as? [String: Any] {
-                sessionID = json["session_id"] as? String
-            }
+            var json: [String: Any]?
+            if parts.count == 3 { json = (try? JSONSerialization.jsonObject(with: Data(parts[2].utf8))) as? [String: Any] }
+            let sessionID = json?["session_id"] as? String
+            let transcript = json?["transcript_path"] as? String
+            // 手动调脚本时会话 id 是智能体自己给的（脚本在 JSON 里加了 manual 标记），或者干脆没有会话 id。
+            let lenient = (json?["manual"] as? Bool) == true || (sessionID == nil && agent != nil)
+            // 旧的、不带 id 的 hook（早期自动连接的 Claude Code、Codex）：从记录文件的位置认出是谁，配对列表才对得上。
+            let who = agent ?? Self.inferAgent(json)
             DispatchQueue.main.async { [weak self] in
-                // 没带会话 id 时：配对智能体用自己的 id 当会话（它每次调脚本的进程号都不同，用进程号永远对不上开始和结束）；内置的用进程号。
+                // 没带会话 id 时：手动调用的智能体用自己的 id 当会话（它每次调脚本的进程号都不同，用进程号永远对不上开始和结束）；其余用进程号。
                 let session = sessionID ?? agent.map { "agent-\($0)" } ?? "pid-\(ppid)"
-                self?.handle(event: event, sessionID: session, from: ppid, agent: agent)
+                self?.handle(event: event, sessionID: session, from: ppid, agent: who, lenient: lenient, transcriptPath: transcript)
             }
         }
     }
 
+    /// 从 hook 传来的聊天记录路径认出是哪个助手（Claude Code 在 ~/.claude/，Codex 在 ~/.codex/）。
+    static func inferAgent(_ json: [String: Any]?) -> String? {
+        if let path = json?["transcript_path"] as? String {
+            if path.contains("/.claude/") { return "claude-code" }
+            if path.contains("/.codex/") { return "codex" }
+        }
+        return json?["turn_id"] != nil ? "codex" : nil
+    }
+
     // MARK: - 状态机
 
-    func handle(event: String, sessionID: String, from pid: pid_t, agent: String? = nil) {
+    func handle(event: String, sessionID: String, from pid: pid_t, agent: String? = nil,
+                lenient: Bool = false, transcriptPath: String? = nil) {
         let owner = ownerResolver(pid)
         record("\(event) agent=\(agent ?? "-") session=\(sessionID.prefix(8)) pid=\(pid) app=\(owner ?? "-")")
+        if let agent { recordActivity(agent: agent, event: event, bundleID: owner) }
         guard let bundleID = owner else { return }
         let before = state(for: bundleID)
         var group = sessions[bundleID] ?? [:]
         let now = Date()
+        func newSession(_ state: AgentState) -> Session {
+            var session = Session(state: state, lastEvent: now, agent: agent, lenient: lenient)
+            if let transcriptPath {
+                let size = (try? FileManager.default.attributesOfItem(atPath: transcriptPath))?[.size] as? UInt64
+                session.transcript = (transcriptPath, size ?? 0)
+            }
+            return session
+        }
         switch event {
         case "UserPromptSubmit":
-            group[sessionID] = Session(state: .working, lastEvent: now, agent: agent)
+            group[sessionID] = newSession(.working)
         case "PostToolUse", "Notification":
-            // 心跳。做完之后迟到的事件（子任务收尾等）不能把状态翻回去。
+            // 心跳，只给已经存在的会话续期。不能凭心跳新建会话：用户点掉“做完了”之后，
+            // 迟到的心跳（后台任务、子任务收尾）会造出一个永远等不到 Stop 的“工作中”，动画就卡住了。开始一定有 UserPromptSubmit。
             if var session = group[sessionID] {
                 session.lastEvent = now
                 group[sessionID] = session
-            } else {
-                group[sessionID] = Session(state: .working, lastEvent: now, agent: agent)
             }
         case "Stop":
-            group[sessionID] = Session(state: .done, lastEvent: now, agent: agent)
-            // 配对智能体的 Stop 没带对会话 id 也没关系：它这个 id 下还在“工作中”的，一起算做完。
-            if let agent {
+            var done = newSession(.done)
+            done.transcript = nil
+            group[sessionID] = done
+            // 手动调脚本的智能体，Stop 没带对会话 id 也没关系：它这个 id 下还在“工作中”的，一起算做完。
+            if lenient, let agent {
                 for (id, session) in group where session.agent == agent && session.state == .working {
-                    group[id] = Session(state: .done, lastEvent: now, agent: agent)
+                    group[id] = Session(state: .done, lastEvent: now, agent: agent, lenient: true)
                 }
             }
         case "SessionEnd", "Interrupt":
-            // 会话结束，或用户按 Esc 打断（Codex 有 Interrupt 事件；Claude Code 没有，靠超时兜底）：直接回到空闲，不显示“做完”。
+            // 会话结束，或用户按 Esc 打断：直接回到空闲，不显示“做完”。
             group[sessionID] = nil
-            if let agent {
+            if lenient, let agent {
                 for (id, session) in group where session.agent == agent && session.state == .working { group[id] = nil }
             }
         default:
@@ -187,6 +220,51 @@ final class AgentMonitor {
         }
         sessions[bundleID] = group.isEmpty ? nil : group
         if state(for: bundleID) != before { onChange?() }
+    }
+
+    // MARK: - 打断检测
+
+    /// 工作中的会话有聊天记录文件时，每 2 秒从上次读到的位置往后找 “[Request interrupted by user”：
+    /// Claude Code 在用户按 Esc 打断时不触发任何 hook，但会把这句追加进记录。找到就当被打断（不显示“做完”）。
+    func scanTranscriptsForInterrupts() {
+        var changed = false
+        for (bundleID, group) in sessions {
+            var kept = group
+            for (id, session) in group where session.state == .working {
+                guard let transcript = session.transcript, let handle = FileHandle(forReadingAtPath: transcript.path) else { continue }
+                defer { try? handle.close() }
+                guard let end = try? handle.seekToEnd(), end > transcript.offset else { continue }
+                // 记录里的新内容最多读 256KB；留 64 字节重叠，免得标记被读成两截。
+                let from = max(transcript.offset, end > 262_144 ? end - 262_144 : 0)
+                try? handle.seek(toOffset: from)
+                let text = String(decoding: (try? handle.readToEnd()) ?? Data(), as: UTF8.self)
+                if text.contains("[Request interrupted by user") {
+                    kept[id] = nil
+                    changed = true
+                } else {
+                    var updated = session
+                    updated.transcript = (transcript.path, end > 64 ? max(transcript.offset, end - 64) : transcript.offset)
+                    kept[id] = updated
+                }
+            }
+            sessions[bundleID] = kept.isEmpty ? nil : kept
+        }
+        if changed { onChange?() }
+    }
+
+    // MARK: - 最近活动（配对列表用）
+
+    private var activity: [String: [String: Any]] = [:]
+    private var lastActivityWrite = Date.distantPast
+
+    /// 记下每个智能体最近一次事件，存进 `activity.json`（重启 App、换日志都不丢）。心跳频繁，最多 2 秒写一次。
+    private func recordActivity(agent: String, event: String, bundleID: String?) {
+        activity[agent] = ["date": Date().timeIntervalSince1970, "event": event, "app": bundleID ?? ""]
+        guard event != "PostToolUse" || Date().timeIntervalSince(lastActivityWrite) > 2 else { return }
+        lastActivityWrite = Date()
+        if let data = try? JSONSerialization.data(withJSONObject: activity) {
+            try? data.write(to: AgentRegistry.activityURL, options: .atomic)
+        }
     }
 
     /// 诊断日志：最近收到的事件，排查“助手没反应”时看。超过 64KB 就从头来。
@@ -210,7 +288,7 @@ final class AgentMonitor {
         for (bundleID, group) in sessions {
             let kept = group.filter { _, session in
                 if session.state == .done { return true }
-                let limit = session.agent != nil ? Self.pairedStaleAfter : Self.staleAfter
+                let limit = session.lenient ? Self.pairedStaleAfter : Self.staleAfter
                 return now.timeIntervalSince(session.lastEvent) < limit
             }
             if kept.count != group.count {

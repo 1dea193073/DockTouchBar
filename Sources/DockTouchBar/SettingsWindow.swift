@@ -546,9 +546,8 @@ private struct SettingsForm: View {
 
 // MARK: - 配对智能体页
 
-/// 三块：说明、给智能体的提示词（复制）、配对列表（内置的 Claude Code / Codex 加上智能体自己登记的）。
+/// 三块：说明、给智能体的提示词（复制）、配对列表（只有已经配对的智能体；取消配对也是复制提示词交给它）。
 struct PairingPage: View {
-    @State private var connected = Set(AgentIntegration.all.filter(AgentHookInstaller.isInstalled).map(\.id))
     @State private var copied = false
     @State private var copiedUnpair: String?
 
@@ -559,15 +558,15 @@ struct PairingPage: View {
                     让任何有自主能力的智能体（Claude Code、Codex、WorkBuddy、Antigravity、豆包、千问……）自己接进来：
                     1. 复制下面的提示词，粘贴给它。
                     2. 它会自己查它的软件怎么挂 hook（没有 hook 就写进它的长期指令），改配置前先备份，并告诉你每一步做了什么。
-                    3. 它验证通过后会登记在下面的列表里，之后它工作时，所在 App 的图标就会有动画。
-                    如果它的软件要你审核或信任新增的 hook，按它说的点一下就行。
+                    3. 它验证通过后会出现在下面的列表里，之后它工作时，所在 App 的图标就会有动画。
+                    如果它的软件要你审核或信任新增的 hook，按它说的点一下就行。不想用了，在列表里复制“取消配对提示词”交给它。
                     """,
                     """
                     Let any capable agent (Claude Code, Codex, WorkBuddy, Antigravity, Doubao, Qwen…) connect itself:
                     1. Copy the prompt below and paste it to the agent.
                     2. It looks up how its app does hooks (or, without hooks, writes to its long-term instructions), backs up its config first, and tells you every step.
-                    3. Once it passes verification it registers in the list below; from then on, the icon of its app animates while it works.
-                    If its app asks you to review or trust a new hook, just click as it says.
+                    3. Once it passes verification it appears in the list below; from then on, the icon of its app animates while it works.
+                    If its app asks you to review or trust a new hook, just click as it says. To stop, copy the unpair prompt from the list and hand it to the agent.
                     """))
                     .font(.callout).foregroundStyle(.secondary)
             }
@@ -594,39 +593,26 @@ struct PairingPage: View {
             }
 
             Section(L10n.tr("配对列表", "Paired agents")) {
-                // 每 3 秒重读一次登记和事件日志，智能体登记或发来事件后这里自己更新。
+                // 每 3 秒重读一次登记和最近事件，智能体登记、发来事件或撤销后这里自己更新。
                 TimelineView(.periodic(from: .now, by: 3)) { _ in
                     list
+                }
+                HStack {
+                    Spacer()
+                    Button(L10n.tr("清除动画状态", "Clear animation states")) { AgentMonitor.shared.resetAll() }
+                        .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
         .formStyle(.grouped)
-        .onAppear { refreshBuiltIns() }
     }
 
     @ViewBuilder private var list: some View {
         let activity = AgentRegistry.lastActivity()
-        ForEach(AgentIntegration.all) { agent in
-            let isOn = connected.contains(agent.id)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Label(agent.name, systemImage: isOn ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(isOn ? Color.green : Color.secondary)
-                    Text(L10n.tr("内置", "Built in")).font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(isOn ? L10n.tr("断开", "Disconnect") : L10n.tr("连接", "Connect")) {
-                        setHooks(agent, installed: !isOn)
-                    }
-                }
-                if isOn, let note = agent.afterConnectNote {
-                    Text(note()).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-        }
         let paired = AgentRegistry.load()
         ForEach(paired) { agent in
             let seen = activity[agent.id]
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack {
                     Label(agent.name, systemImage: seen != nil ? "checkmark.circle.fill" : "clock")
                         .foregroundStyle(seen != nil ? Color.green : Color.orange)
@@ -637,31 +623,17 @@ struct PairingPage: View {
                         copiedUnpair = agent.id
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copiedUnpair = nil }
                     }
-                    Button(L10n.tr("移除", "Remove")) { AgentRegistry.remove(id: agent.id) }
                 }
                 Text(status(seen)).font(.caption).foregroundStyle(.secondary)
-                if !agent.notes.isEmpty { Text(agent.notes).font(.caption).foregroundStyle(.secondary) }
             }
         }
         if paired.isEmpty {
-            Text(L10n.tr("还没有智能体通过提示词配对。把上面的提示词交给一个智能体试试。",
-                         "No agent has paired through the prompt yet. Hand the prompt above to an agent."))
-                .font(.caption).foregroundStyle(.secondary)
+            Text(L10n.tr("还没有配对的智能体", "No paired agents yet")).foregroundStyle(.secondary)
         }
-        HStack {
-            Text(L10n.tr("图标上的动画卡住了？", "Animation stuck on an icon?")).font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            Button(L10n.tr("清除所有动画状态", "Clear all animation states")) { AgentMonitor.shared.resetAll() }
-        }
-        Text(L10n.tr("“移除”只删除这里的登记，不会改动智能体自己的配置；要还原它的配置，用“复制取消配对提示词”交给它。",
-                     "“Remove” only deletes the registration here and doesn't touch the agent's own config; to undo its config, hand it the unpair prompt."))
-            .font(.caption).foregroundStyle(.secondary)
     }
 
     private func status(_ seen: AgentActivity?) -> String {
-        guard let seen else {
-            return L10n.tr("待验证：还没收到它发来的事件，让它跑一个任务试试", "Pending: no events received yet — let it run a task")
-        }
+        guard let seen else { return L10n.tr("待验证：还没收到它发来的事件", "Pending: no events received yet") }
         let ago = RelativeDateTimeFormatter().localizedString(for: seen.date, relativeTo: Date())
         var app = ""
         if let id = seen.bundleID, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
@@ -675,21 +647,5 @@ struct PairingPage: View {
     private func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-    }
-
-    private func refreshBuiltIns() {
-        connected = Set(AgentIntegration.all.filter(AgentHookInstaller.isInstalled).map(\.id))
-    }
-
-    private func setHooks(_ agent: AgentIntegration, installed: Bool) {
-        do {
-            if installed { try AgentHookInstaller.install(agent) } else { try AgentHookInstaller.uninstall(agent) }
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = L10n.tr("无法修改 \(agent.name) 的配置", "Couldn't change the \(agent.name) settings")
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
-        }
-        refreshBuiltIns()
     }
 }
