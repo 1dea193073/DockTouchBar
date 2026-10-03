@@ -135,7 +135,9 @@ final class AgentMonitor {
     // MARK: - 状态机
 
     func handle(event: String, sessionID: String, from pid: pid_t) {
-        guard let bundleID = ownerResolver(pid) else { return }
+        let owner = ownerResolver(pid)
+        record("\(event) session=\(sessionID.prefix(8)) pid=\(pid) app=\(owner ?? "-")")
+        guard let bundleID = owner else { return }
         let before = state(for: bundleID)
         var group = sessions[bundleID] ?? [:]
         let now = Date()
@@ -160,6 +162,22 @@ final class AgentMonitor {
         }
         sessions[bundleID] = group.isEmpty ? nil : group
         if state(for: bundleID) != before { onChange?() }
+    }
+
+    /// 诊断日志：最近收到的事件，排查“助手没反应”时看。超过 64KB 就从头来。
+    private func record(_ line: String) {
+        let url = Self.supportDirectory.appendingPathComponent("events.log")
+        let text = "\(ISO8601DateFormatter().string(from: Date())) \(line)\n"
+        if let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int, size > 65536 {
+            try? FileManager.default.removeItem(at: url)
+        }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(text.utf8))
+            try? handle.close()
+        } else {
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     private func dropStaleSessions() {
