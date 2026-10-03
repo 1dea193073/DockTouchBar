@@ -73,14 +73,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         scheduleDisplayCheck()
     }
 
-    /// Vibecoding 版第一次启动时自动把 Claude Code 的 hook 接好（只做一次；之后用户在设置里点“断开”就不会再自动装回来）。
-    /// 已经接好的，每次启动顺手把脚本刷新成当前版本。
+    /// Vibecoding 版第一次启动时，自动把装在这台电脑上的 AI 助手（Claude Code、Codex……）的 hook 接好，每个助手只做一次；
+    /// 之后用户在设置里点“断开”，就不会再自动装回来。已经接好的，每次启动顺手刷新脚本；指向旧脚本的，重新接一次。
     private func connectAgentHooksOnFirstLaunch() {
-        let flag = "agentHooksAutoConnected"
-        if AgentHookInstaller.isInstalled {
-            try? AgentHookInstaller.refreshScript()
-        } else if !defaults.bool(forKey: flag), defaults.bool(forKey: Key.agentStatus) {
-            if (try? AgentHookInstaller.install()) != nil { defaults.set(true, forKey: flag) }
+        for agent in AgentIntegration.all {
+            let flag = agent.id == "claude" ? "agentHooksAutoConnected" : "agentHooksAutoConnected.\(agent.id)"
+            if AgentHookInstaller.needsMigration(agent) {
+                try? AgentHookInstaller.install(agent)
+            } else if AgentHookInstaller.isInstalled(agent) {
+                try? AgentHookInstaller.refreshScript()
+            } else if !defaults.bool(forKey: flag), defaults.bool(forKey: Key.agentStatus), AgentHookInstaller.isPresent(agent) {
+                if (try? AgentHookInstaller.install(agent)) != nil { defaults.set(true, forKey: flag) }
+            }
         }
     }
 

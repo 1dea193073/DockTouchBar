@@ -2,6 +2,7 @@
 // 不会把 Dock 挂到 Touch Bar 上，所以不影响正在运行的 DockTouchBar。
 // 由 tools/render-preview.sh 编译运行。环境变量：
 //   PREVIEW_DEMO=1        用系统自带 App 做示例，不读你自己的 Dock（做 README 示意图时用）
+//   PREVIEW_AGENT=2       所有 App 都画状态层（交替“工作中 / 做完”），看每个图标的主题色边框
 //   PREVIEW_AGENT=1       给 Safari / Notes 画“AI 助手工作中”、给 Messages 画“做完了”的状态层（Vibecoding 版）
 //   PREVIEW_PRESS_INDEX=n 让第 n 个图标显示长按退出的进度条
 //   PREVIEW_PROGRESS=p    配合上一项，把长按提示定格在倒计时走到 p（0…1）的样子，默认 0.5
@@ -111,6 +112,15 @@ if env["PREVIEW_DEMO"] == "1" {
     ]
 }
 
+if env["PREVIEW_AGENT"] == "2", var tiles = DockModel.previewTiles {
+    // 所有 App 都画状态层，单双号交替“工作中 / 做完”，一次看多个图标的配色。
+    var flip = false
+    for index in tiles.indices where tiles[index].kind == .app {
+        tiles[index].agentState = flip ? .done : .working
+        flip.toggle()
+    }
+    DockModel.previewTiles = tiles
+}
 if env["PREVIEW_AGENT"] == "1", var tiles = DockModel.previewTiles {
     for index in tiles.indices {
         switch tiles[index].bundleID {

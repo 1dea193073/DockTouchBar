@@ -422,7 +422,7 @@ private struct SettingsForm: View {
     @AppStorage(SettingsKey.yieldFunctionRow) private var yieldFn = true
     @AppStorage(SettingsKey.language) private var language = AppLanguage.system.rawValue
     @AppStorage(SettingsKey.agentStatus) private var agentStatus = true
-    @State private var hooksInstalled = AgentHookInstaller.isInstalled
+    @State private var connected = Set(AgentIntegration.all.filter(AgentHookInstaller.isInstalled).map(\.id))
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hasAccess = AppSwitcher.hasAccessibilityAccess
 
@@ -465,16 +465,22 @@ private struct SettingsForm: View {
 
             Section(L10n.tr("AI 编程助手", "AI coding agents")) {
                 Toggle(L10n.tr("在图标上显示工作状态", "Show working status on icons"), isOn: $agentStatus)
-                HStack {
-                    Text(hooksInstalled ? L10n.tr("Claude Code：已连接", "Claude Code: connected")
-                                        : L10n.tr("Claude Code：未连接", "Claude Code: not connected"))
-                    Spacer()
-                    Button(hooksInstalled ? L10n.tr("断开", "Disconnect") : L10n.tr("连接", "Connect")) {
-                        setHooks(installed: !hooksInstalled)
+                ForEach(AgentIntegration.all) { agent in
+                    let isOn = connected.contains(agent.id)
+                    HStack {
+                        Text(isOn ? L10n.tr("\(agent.name)：已连接", "\(agent.name): connected")
+                                  : L10n.tr("\(agent.name)：未连接", "\(agent.name): not connected"))
+                        Spacer()
+                        Button(isOn ? L10n.tr("断开", "Disconnect") : L10n.tr("连接", "Connect")) {
+                            setHooks(agent, installed: !isOn)
+                        }
+                    }
+                    if isOn, let note = agent.afterConnectNote {
+                        Text(note()).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Text(L10n.tr("连接会在 ~/.claude/settings.json 里加几条 hook（改之前自动备份，断开时原样删掉）。Claude Code 工作时，所在 App 的图标下方出现字符雨，做完变成对号，点一下图标消失。",
-                             "Connecting adds a few hooks to ~/.claude/settings.json (backed up first, removed again when you disconnect). While Claude Code works, the icon of the app it runs in shows falling digits; when it finishes, a check mark appears, and a tap on the icon dismisses it."))
+                Text(L10n.tr("连接会在助手的 hook 配置里加几条 hook（Claude Code：~/.claude/settings.json，Codex：~/.codex/hooks.json；改之前自动备份，断开时原样删掉）。助手工作时，所在 App 的图标下方出现字符雨，做完变成对号，点一下图标消失。",
+                             "Connecting adds a few hooks to the agent's hook config (Claude Code: ~/.claude/settings.json, Codex: ~/.codex/hooks.json; backed up first, removed again when you disconnect). While an agent works, the icon of the app it runs in shows falling digits; when it finishes, a check mark appears, and a tap on the icon dismisses it."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -531,20 +537,20 @@ private struct SettingsForm: View {
         .onAppear {
             hasAccess = AppSwitcher.hasAccessibilityAccess
             launchAtLogin = SMAppService.mainApp.status == .enabled
-            hooksInstalled = AgentHookInstaller.isInstalled
+            connected = Set(AgentIntegration.all.filter(AgentHookInstaller.isInstalled).map(\.id))
         }
     }
 
-    private func setHooks(installed: Bool) {
+    private func setHooks(_ agent: AgentIntegration, installed: Bool) {
         do {
-            if installed { try AgentHookInstaller.install() } else { try AgentHookInstaller.uninstall() }
+            if installed { try AgentHookInstaller.install(agent) } else { try AgentHookInstaller.uninstall(agent) }
         } catch {
             let alert = NSAlert()
-            alert.messageText = L10n.tr("无法修改 Claude Code 配置", "Couldn't change the Claude Code settings")
+            alert.messageText = L10n.tr("无法修改 \(agent.name) 的配置", "Couldn't change the \(agent.name) settings")
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }
-        hooksInstalled = AgentHookInstaller.isInstalled
+        connected = Set(AgentIntegration.all.filter(AgentHookInstaller.isInstalled).map(\.id))
     }
 
     private func setLaunchAtLogin(_ on: Bool) {

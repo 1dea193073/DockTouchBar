@@ -11,16 +11,19 @@ enum AgentState: Equatable {
 
 /// 接收各个助手的 hook 事件（本地 Unix socket），按“所在的 App”汇总成状态。
 ///
-/// 事件来自 `AgentHookInstaller` 写进 `~/.claude/settings.json` 的 hook：每个事件一行
+/// 事件来自 `AgentHookInstaller` 写进各助手配置（~/.claude/settings.json、~/.codex/hooks.json）的 hook：每个事件一行
 /// `事件名 \t hook 进程的父进程号 \t Claude 传来的 JSON`。父进程号一路往上找，找到第一个有 Dock 图标的 App，
 /// 就是这次会话所在的 App（终端、VS Code、Claude 桌面版……）。
 final class AgentMonitor {
     static let shared = AgentMonitor()
 
-    static let supportDirectory = FileManager.default.homeDirectoryForCurrentUser
+    /// 支持目录（socket、hook 脚本）。可以替换，测试时用。
+    static var supportDirectory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/\(AppInfo.fileName)", isDirectory: true)
-    static let socketURL = supportDirectory.appendingPathComponent("agent.sock")
+    static var socketURL: URL { supportDirectory.appendingPathComponent("agent.sock") }
 
+    /// 从 hook 进程号找到会话所在的 App。可以替换，测试时用。
+    var ownerResolver: (pid_t) -> String? = AgentMonitor.owningApp(of:)
     /// 状态变了（主线程回调）。
     var onChange: (() -> Void)?
     /// 设置里的总开关；关掉后所有图标都按 idle 显示，事件仍然记录。
@@ -132,7 +135,7 @@ final class AgentMonitor {
     // MARK: - 状态机
 
     func handle(event: String, sessionID: String, from pid: pid_t) {
-        guard let bundleID = Self.owningApp(of: pid) else { return }
+        guard let bundleID = ownerResolver(pid) else { return }
         let before = state(for: bundleID)
         var group = sessions[bundleID] ?? [:]
         let now = Date()
@@ -149,7 +152,8 @@ final class AgentMonitor {
             }
         case "Stop":
             group[sessionID] = Session(state: .done, lastEvent: now)
-        case "SessionEnd":
+        case "SessionEnd", "Interrupt":
+            // 会话结束，或用户按 Esc 打断（Codex 有 Interrupt 事件；Claude Code 没有，靠超时兜底）：直接回到空闲，不显示“做完”。
             group[sessionID] = nil
         default:
             return
