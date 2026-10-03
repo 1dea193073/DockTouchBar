@@ -46,6 +46,9 @@ final class AgentOverlayLayer: CALayer {
     private let okText = CATextLayer()
     private let cursor = CALayer()
     private let shape = CALayer()
+    /// 被图标轮廓裁剪的内容（渐变、字符雨、OK）；轮廓线本身不裁，光晕才能往外晕开一点。
+    private let content = CALayer()
+    private let outline = CALayer()
 
     private var applied: (state: AgentState, glyph: CGRect, key: URL?)?
 
@@ -64,8 +67,8 @@ final class AgentOverlayLayer: CALayer {
     private func commonInit() {
         contentsScale = 2
         // 黑色渐变：从图标中间（透明）到底部（最黑）。
-        // 整个图标压暗，下重上轻：到一半的位置已经很黑，字符才跳得出来；顶部留一点原图，认得出是哪个 App。
-        shade.colors = [CGColor(gray: 0, alpha: 0.3), CGColor(gray: 0, alpha: 0.7), CGColor(gray: 0, alpha: 0.95)]
+        // 整个图标适度压暗，下重上轻：字符跳得出来，同时图标本身还看得清（再加一圈绿色轮廓线帮着认）。
+        shade.colors = [CGColor(gray: 0, alpha: 0.0), CGColor(gray: 0, alpha: 0.32), CGColor(gray: 0, alpha: 0.7)]
         shade.locations = [0, 0.5, 1]
         shade.startPoint = CGPoint(x: 0.5, y: 1)
         shade.endPoint = CGPoint(x: 0.5, y: 0)
@@ -95,11 +98,20 @@ final class AgentOverlayLayer: CALayer {
         cursor.backgroundColor = Self.green
         shape.contentsGravity = .resizeAspect
         shape.contentsScale = 2
-        addSublayer(shade)
-        addSublayer(rain)
-        addSublayer(okText)
-        addSublayer(cursor)
-        mask = shape
+        content.addSublayer(shade)
+        content.addSublayer(rain)
+        content.addSublayer(okText)
+        content.addSublayer(cursor)
+        content.mask = shape
+        addSublayer(content)
+        // 沿图标轮廓描一圈绿线，像老式绿色荧光屏的边缘：原来的图标轮廓一直认得出来。
+        outline.contentsScale = 2
+        outline.magnificationFilter = .nearest
+        outline.shadowColor = Self.green
+        outline.shadowRadius = 2.5
+        outline.shadowOpacity = 0.9
+        outline.shadowOffset = .zero
+        addSublayer(outline)
         isHidden = true
     }
 
@@ -109,8 +121,22 @@ final class AgentOverlayLayer: CALayer {
         if let applied, applied.state == state, applied.glyph == glyph, applied.key == key { return }
         applied = (state, glyph, key)
         frame = CGRect(x: frame.minX, y: frame.minY, width: size, height: size)
-        shape.frame = CGRect(x: 0, y: 0, width: size, height: size)
+        content.frame = CGRect(x: 0, y: 0, width: size, height: size)
+        outline.frame = content.frame
+        shape.frame = content.bounds
         shape.contents = icon
+        outline.contents = icon.flatMap(Self.outlineImage(of:))
+        outline.removeAnimation(forKey: "glow")
+        if state == .working {
+            // 荧光屏一样的呼吸：亮度在 0.7 到 1 之间慢慢起伏。
+            let glow = CABasicAnimation(keyPath: "opacity")
+            glow.fromValue = 0.7
+            glow.toValue = 1
+            glow.duration = 1.4
+            glow.autoreverses = true
+            glow.repeatCount = .infinity
+            outline.add(glow, forKey: "glow")
+        }
         isHidden = state == .idle
         rain.sublayers?.forEach { $0.removeFromSuperlayer() }
         cursor.removeAllAnimations()
@@ -182,6 +208,33 @@ final class AgentOverlayLayer: CALayer {
         blink.duration = 1
         blink.repeatCount = .infinity
         cursor.add(blink, forKey: "blink")
+    }
+
+    /// 图标不透明区域的边缘（约 2 像素宽）染成绿色，其余透明。边缘 = 不透明、且周围 2 像素内有透明（或出了画布）的点。
+    private static func outlineImage(of icon: CGImage) -> CGImage? {
+        let w = icon.width, h = icon.height
+        guard let source = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                     space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let output = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                     space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        source.draw(icon, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let data = source.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        func solid(_ x: Int, _ y: Int) -> Bool {
+            x >= 0 && x < w && y >= 0 && y < h && data[(y * w + x) * 4 + 3] >= 128
+        }
+        output.setFillColor(green)
+        for y in 0..<h {
+            for x in 0..<w where solid(x, y) {
+                var edge = false
+                scan: for dy in -2...2 {
+                    for dx in -2...2 where abs(dx) + abs(dy) <= 2 && !solid(x + dx, y + dy) { edge = true; break scan }
+                }
+                if edge { output.fill(CGRect(x: x, y: y, width: 1, height: 1)) }
+            }
+        }
+        return output.makeImage()
     }
 
     /// 一列字符带的几个版本：同一个雨头、同一条尾巴，只有一部分字符不一样，轮流播放就是字符在原地跳变。
