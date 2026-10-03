@@ -82,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// App 不再替任何助手改配置：新的接入都走“配对智能体”提示词。
     private func prepareAgentPairing() {
         try? AgentHookInstaller.refreshScript()
+        AgentRegistry.backfillActivityFromLog()
         AgentRegistry.migrateLegacyHooks()
     }
 

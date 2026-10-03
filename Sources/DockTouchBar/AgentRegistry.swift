@@ -63,6 +63,27 @@ enum AgentRegistry {
         }
     }
 
+    /// 第一次有 `activity.json`（升级自按日志判断“已验证”的旧版本）时，从诊断日志回填每个智能体最近一次事件，已配对的不会退回“待验证”。
+    /// 日志一行：`时间 事件 agent=… session=… pid=… app=…`。已有 activity.json 的不动。
+    static func backfillActivityFromLog() {
+        guard !FileManager.default.fileExists(atPath: activityURL.path),
+              let text = try? String(contentsOf: logURL, encoding: .utf8) else { return }
+        let formatter = ISO8601DateFormatter()
+        var result: [String: [String: Any]] = [:]
+        for line in text.split(separator: "\n") {
+            let fields = line.split(separator: " ")
+            guard fields.count >= 3, let date = formatter.date(from: String(fields[0])) else { continue }
+            func value(_ key: String) -> String? {
+                fields.first { $0.hasPrefix(key + "=") }.map { String($0.dropFirst(key.count + 1)) }
+            }
+            guard let agent = value("agent"), agent != "-" else { continue }
+            let app = value("app").flatMap { $0 == "-" ? nil : $0 } ?? ""
+            result[agent] = ["date": date.timeIntervalSince1970, "event": String(fields[1]), "app": app]
+        }
+        guard !result.isEmpty, let data = try? JSONSerialization.data(withJSONObject: result) else { return }
+        try? data.write(to: activityURL, options: .atomic)
+    }
+
     /// 早期版本自动连接过的 Claude Code、Codex：它们的 hook 还在各自配置里工作，只是没有登记。
     /// 启动时给它们补一份登记，配对列表里才看得到（只读配置，不改任何东西；已有登记的不动）。
     static var homeDirectory = FileManager.default.homeDirectoryForCurrentUser

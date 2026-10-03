@@ -127,6 +127,22 @@ do {
     check(AgentRegistry.lastActivity()["lost"]?.bundleID == nil, "活动: 找不到所在 App 时 bundleID 为空，列表会提示")
 }
 
+// 4b. 升级时从日志回填，已配对的不退回“待验证”。
+do {
+    try? fm.removeItem(at: AgentRegistry.activityURL)
+    let log1 = ["2026-10-03T19:23:08Z UserPromptSubmit agent=antigravity session=t pid=1 app=com.google.antigravity",
+                "2026-10-03T19:27:23Z Stop agent=antigravity session=t pid=1 app=com.google.antigravity",
+                "2026-10-03T19:30:00Z Stop agent=- session=x pid=1 app=com.apple.finder"].joined(separator: "\n")
+    try log1.write(to: AgentRegistry.logURL, atomically: true, encoding: .utf8)
+    AgentRegistry.backfillActivityFromLog()
+    let activity = AgentRegistry.lastActivity()
+    check(activity["antigravity"]?.event == "Stop" && activity["antigravity"]?.bundleID == "com.google.antigravity" && activity.count == 1,
+          "回填: 从日志取每个智能体最近一次事件，没带 id 的不算")
+    try "2026-10-03T20:00:00Z Stop agent=other session=x pid=1 app=-".write(to: AgentRegistry.logURL, atomically: true, encoding: .utf8)
+    AgentRegistry.backfillActivityFromLog()
+    check(AgentRegistry.lastActivity()["other"] == nil, "回填: 已经有 activity.json 的不再覆盖")
+}
+
 // 5. 登记文件。
 let agentsDir = AgentRegistry.directory
 try fm.createDirectory(at: agentsDir, withIntermediateDirectories: true)
