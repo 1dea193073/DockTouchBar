@@ -42,23 +42,24 @@ App 不再替任何助手改配置（早期的 Claude Code / Codex 内置连接�
 
 ## 调整图标上的动画 / 外观
 
-所有绘制在 `AgentOverlay.swift`，全部是**设备像素级手绘**（Touch Bar 图标只有 56 像素宽，字体渲染会糊）：
+所有绘制在 `AgentOverlay.swift`。**整个图标共用一个像素格：1 格 = 1pt = 2×2 设备像素，整个图标 28×28 格**——8-bit 原图标、CRT 边框、字符雨、OK 全都按这个格子画，对齐才统一；新加任何绘制都要遵守，不要再引入别的像素大小。
 
-- 字符雨：`glyphBitmaps`（5×7 点阵）、`stripVariants/drawStrip`（雨头发光、尾巴曲线渐隐、字符跳变）。
-- CRT 屏幕外框：`crtFrame(of:)`，按“离图标边缘几个像素”分层（机身边、玻璃边、内阴影、左上角反光），所以自动贴合任何圆角。
-- 8-bit 原图标：`pixelated(_:)`（28×28 格，真正的 8 位色板 RGB332：红绿各 8 档、蓝 4 档；每通道只留 4 档会把橙色量化成红色）。
-- OK：`okImage()`（5×7 点阵，每点 1pt）。
+- 8-bit 原图标：`pixelated(_:)`。不是“缩小再限色”（那只是糊了一下），用的是像素画手法：28×28 格、先加强饱和度和对比度、每个图标用 median cut 提取自己的 10 色小调色板、渐变处用 Bayer 4×4 有序抖动、半透明格子要么实心要么留空。
+- CRT 屏幕外框：`crtFrame(of:)`，按格、按“离图标边缘几格”分层（机身边、玻璃边、两层内阴影、左上角反光），所以自动贴合任何圆角，圆角是按格的阶梯。
+- 字符雨：`glyphBitmaps`（3×5 格点阵，镜像）、`stripVariants/drawStrip`（字符带的图片一个像素 = 一格，`contentsScale = 1`；只有雨头带淡光晕——每个字符都带的话会连成一片绿盖住图标）。
+- OK：`okImage()`（5×7 格，每格 1pt）。
 
 **出图流程（每次改完都跑）**：
 
 ```bash
 swift build 2>&1 | grep -E "error|Build"
 bash tools/preview-agent.sh build/agent-preview.png   # 实时窗口截图，已放大，用 Read 打开看
+# 对比多个真实 App 的图标（颜色、辨识度），PREVIEW_CROP 调宽裁剪：
+PREVIEW_CROP=640 PREVIEW_AGENT_APPS="/Applications/A.app,/Applications/B.app" bash tools/preview-agent.sh build/compare.png
 bash tools/render-settings.sh build/pairing-page.png  # 离屏渲染“配对智能体”页（Stage Manager 会把设置窗口收起来，别截真窗口）
-PREVIEW_AGENT_APP=/Applications/Xxx.app bash tools/preview-agent.sh   # 把某个真实 App 的图标放进预览，看它工作中的样子（颜色、辨识度）
 ```
 
-看图要点：原图标认不认得出、字符雨密度和亮度、`OK` 在绿色/白色图标上的对比度、边框是否贴合圆角。静态截图看不出动画流畅度和光标闪烁，要说清楚“没看到动画”，让用户在真 Touch Bar 上确认。
+看图要点：原图标认不认得出（用白色、黑白、彩色几种图标都试）、字符雨有没有连成一片盖住图标、`OK` 的对比度、边框是否贴合圆角、各部分的像素大小是否一致。静态截图看不出动画流畅度和光标闪烁，要说清楚“没看到动画”，让用户在真 Touch Bar 上确认。
 
 App 图标：改 `scripts/make-icon.swift` 后 `bash scripts/make-icon.sh`，再 Read `Resources/AppIcon-1024.png` 检查。
 

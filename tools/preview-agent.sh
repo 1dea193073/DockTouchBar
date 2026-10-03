@@ -16,7 +16,7 @@ done
 swiftc -O "${SOURCES[@]}" tools/render-preview/main.swift -o build/tools/render-preview
 
 LOG="$(mktemp)"
-PREVIEW_DEMO=1 PREVIEW_AGENT=1 PREVIEW_AGENT_APP="${PREVIEW_AGENT_APP:-}" PREVIEW_LIVE=1 PREVIEW_LIVE_SECONDS=10 build/tools/render-preview /dev/null >"$LOG" 2>&1 &
+PREVIEW_DEMO=1 PREVIEW_AGENT=1 PREVIEW_AGENT_APP="${PREVIEW_AGENT_APP:-}" PREVIEW_AGENT_APPS="${PREVIEW_AGENT_APPS:-}" PREVIEW_LIVE=1 PREVIEW_LIVE_SECONDS=10 build/tools/render-preview /dev/null >"$LOG" 2>&1 &
 sleep "$WAIT"
 WINDOW="$(grep -o 'WINDOW [0-9]*' "$LOG" | cut -d' ' -f2)"
 [ -n "$WINDOW" ] || { echo "没有拿到预览窗口" >&2; cat "$LOG" >&2; exit 1; }
@@ -24,7 +24,8 @@ RAW="$(mktemp -t agent-preview).png"
 screencapture -x -o -l "$WINDOW" "$RAW"
 wait || true
 # 窗口截图是 2 倍屏：裁出左边约 5 个图标，再放大 5 倍，像素才看得清。
-sips -c 60 420 --cropOffset 0 480 "$RAW" --out "$RAW" >/dev/null
-sips -z 300 2100 "$RAW" --out "$OUT" >/dev/null
+CROP="${PREVIEW_CROP:-420}"   # 裁多宽（设备像素）；对比多个图标时调大，比如 PREVIEW_CROP=640
+sips -c 60 "$CROP" --cropOffset 0 480 "$RAW" --out "$RAW" >/dev/null
+sips -z 300 $((CROP * 5)) "$RAW" --out "$OUT" >/dev/null
 rm -f "$RAW" "$LOG"
 echo "Wrote $OUT"

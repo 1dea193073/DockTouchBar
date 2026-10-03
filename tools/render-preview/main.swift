@@ -137,6 +137,14 @@ if env["PREVIEW_AGENT"] == "1", var tiles = DockModel.previewTiles {
     }
     DockModel.previewTiles = tiles
 }
+// PREVIEW_AGENT_APPS=/Applications/A.app,/Applications/B.app,…：把示例里 Finder 后面的几个图标依次换成这些 App，都画成“工作中”，一次对比多个真实图标。
+if let list = env["PREVIEW_AGENT_APPS"], var tiles = DockModel.previewTiles {
+    for (offset, path) in list.split(separator: ",").enumerated() where 4 + offset < tiles.count - 2 {
+        tiles[4 + offset] = DockTile(kind: .app, url: URL(fileURLWithPath: String(path)), bundleID: "preview.agent.\(offset)",
+                                     isRunning: true, isFrontmost: false, agentState: .working)
+    }
+    DockModel.previewTiles = tiles
+}
 if env["PREVIEW_WIDE"] == "1", let tiles = DockModel.previewTiles {
     let extra = tiles.filter { $0.kind == .app }
     DockModel.previewTiles = Array(tiles.dropLast(2)) + extra + [.divider, .trash]

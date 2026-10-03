@@ -160,6 +160,10 @@ final class AgentMonitor {
             if parts.count == 3 { json = (try? JSONSerialization.jsonObject(with: Data(parts[2].utf8))) as? [String: Any] }
             let sessionID = json?["session_id"] as? String
             let transcript = json?["transcript_path"] as? String
+            // 诊断用：完整会话 id、轮次 id、工具名（Codex 的会话 id 是按时间生成的，前 8 位相同不代表同一个会话）。
+            let detail = ["turn": json?["turn_id"] as? String, "tool": json?["tool_name"] as? String,
+                          "sid": sessionID, "src": (transcript as NSString?)?.lastPathComponent]
+                .compactMap { key, value in value.map { "\(key)=\($0.prefix(40))" } }.sorted().joined(separator: " ")
             // 手动调脚本时会话 id 是智能体自己给的（脚本在 JSON 里加了 manual 标记），或者干脆没有会话 id。
             let lenient = (json?["manual"] as? Bool) == true || (sessionID == nil && agent != nil)
             // 旧的、不带 id 的 hook（早期自动连接的 Claude Code、Codex）：从记录文件的位置认出是谁，配对列表才对得上。
@@ -167,7 +171,7 @@ final class AgentMonitor {
             DispatchQueue.main.async { [weak self] in
                 // 没带会话 id 时：手动调用的智能体用自己的 id 当会话（它每次调脚本的进程号都不同，用进程号永远对不上开始和结束）；其余用进程号。
                 let session = sessionID ?? agent.map { "agent-\($0)" } ?? "pid-\(ppid)"
-                self?.handle(event: event, sessionID: session, from: ppid, agent: who, lenient: lenient, transcriptPath: transcript)
+                self?.handle(event: event, sessionID: session, from: ppid, agent: who, lenient: lenient, transcriptPath: transcript, detail: detail)
             }
         }
     }
@@ -225,9 +229,9 @@ final class AgentMonitor {
     // MARK: - 状态机
 
     func handle(event: String, sessionID: String, from pid: pid_t, agent: String? = nil,
-                lenient: Bool = false, transcriptPath: String? = nil) {
+                lenient: Bool = false, transcriptPath: String? = nil, detail: String = "") {
         let owner = ownerResolver(pid)
-        record("\(event) agent=\(agent ?? "-") session=\(sessionID.prefix(8)) pid=\(pid) app=\(owner ?? "-")")
+        record("\(event) agent=\(agent ?? "-") session=\(sessionID.prefix(8)) pid=\(pid) app=\(owner ?? "-")" + (detail.isEmpty ? "" : " " + detail))
         if let agent { recordActivity(agent: agent, event: event, bundleID: owner) }
         guard let bundleID = owner else { return }
         let before = state(for: bundleID)
