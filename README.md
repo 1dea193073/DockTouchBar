@@ -11,10 +11,18 @@
   <br>
   Tap to switch · double-tap to minimize · long-press to quit
   <br>
-  <a href="https://github.com/hooosberg/DockTouchBar/releases/latest">Download</a> ·
-  <a href="https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0">Download Vibe (AI agent status)</a> ·
   <a href="https://hooosberg.com/apps/docktouchbar">Product page</a> ·
   <a href="https://hooosberg.com/apps/docktouchbar/diary">Build diary</a>
+</p>
+
+<p align="center">
+  <strong>Two apps, two downloads:</strong>
+  <br>
+  <a href="https://github.com/hooosberg/DockTouchBar/releases/latest"><strong>⬇ DockTouchBar</strong></a> (Standard: your Dock on the Touch Bar)
+  &nbsp;·&nbsp;
+  <a href="https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0"><strong>⬇ DockTouchBar Vibe</strong></a> (adds live AI agent status on the icons)
+  <br>
+  <sub>Not sure which? Start with Standard. <a href="#two-editions">What's the difference and where to download?</a></sub>
 </p>
 
 <p align="center">
@@ -47,6 +55,11 @@
 | For | Everyone with a Touch Bar Mac | People who code with AI agents (Claude Code, Codex, Qoder, WorkBuddy, Antigravity…) |
 | What it is | Your Dock on the Touch Bar: tap, double-tap, long-press | Everything in Standard, plus a live status on the icon of the app your AI agent runs in: a pixel-art screen with falling digits while it works, **OK** when it's done |
 | Download | [**Download Standard**](https://github.com/hooosberg/DockTouchBar/releases/latest) | [**Download Vibe 1.0**](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0) |
+
+**Where to download**
+
+- **Standard** → the repository's [**Releases** page](https://github.com/hooosberg/DockTouchBar/releases/latest) (the release marked **Latest**, also shown in the right sidebar of this page). Download `DockTouchBar-<version>.dmg`.
+- **Vibe** → its own release, [**Vibe 1.0**](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0). Download `DockTouchBarVibe-<version>.dmg` from **Assets**. GitHub's sidebar can only show one "Latest", so Vibe is not shown there; use this link, or find it in the full [Releases list](https://github.com/hooosberg/DockTouchBar/releases) (releases named "Vibe").
 
 **Not sure? Start with Standard.** Pick **Vibe** if you use AI coding agents on this Mac and want to see, right on the Touch Bar, which one is busy and which one has just finished. Vibe is a separate app with its own name, settings and updates, and it already includes the whole Dock, so you only need one of the two. They both take the Touch Bar, so run one at a time (Vibe tells you if the Standard one is running). Both come from this repository: Standard is the `main` branch, Vibe is the `vibecoding` branch.
 
