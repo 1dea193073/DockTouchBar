@@ -113,6 +113,33 @@ send("UserPromptSubmit", "f", 100)
 check(monitor.state(for: "app.one") == .idle, "状态: 总开关关掉后一律显示空闲")
 check(changes > 0, "状态: 变化会通知刷新")
 
+// 5b. 配对智能体：会话 id 对不上也不会卡住。
+let paired = AgentMonitor()
+paired.ownerResolver = { _ in "app.paired" }
+paired.handle(event: "UserPromptSubmit", sessionID: "a", from: 1, agent: "bot")
+paired.handle(event: "UserPromptSubmit", sessionID: "b", from: 2, agent: "bot")
+paired.handle(event: "Stop", sessionID: "zzz", from: 3, agent: "bot")
+check(paired.state(for: "app.paired") == .done, "配对: Stop 带了对不上的会话 id，它这个 id 下的工作中会话也一起算做完")
+paired.acknowledge(bundleID: "app.paired")
+paired.handle(event: "UserPromptSubmit", sessionID: "c", from: 1, agent: "bot")
+paired.handle(event: "Interrupt", sessionID: "other", from: 1, agent: "bot")
+check(paired.state(for: "app.paired") == .idle, "配对: Interrupt 清掉它所有工作中的会话")
+paired.handle(event: "UserPromptSubmit", sessionID: "d", from: 1, agent: "bot")
+paired.dropStaleSessions(now: Date().addingTimeInterval(AgentMonitor.pairedStaleAfter - 5))
+check(paired.state(for: "app.paired") == .working, "配对: 3 分钟以内还算工作中")
+paired.dropStaleSessions(now: Date().addingTimeInterval(AgentMonitor.pairedStaleAfter + 5))
+check(paired.state(for: "app.paired") == .idle, "配对: 3 分钟没有事件就当中断，动画不会一直转")
+let builtIn = AgentMonitor()
+builtIn.ownerResolver = { _ in "app.builtin" }
+builtIn.handle(event: "UserPromptSubmit", sessionID: "x", from: 1)
+builtIn.dropStaleSessions(now: Date().addingTimeInterval(AgentMonitor.pairedStaleAfter + 5))
+check(builtIn.state(for: "app.builtin") == .working, "内置: 有心跳的内置助手 3 分钟不会被清掉（给 10 分钟）")
+builtIn.dropStaleSessions(now: Date().addingTimeInterval(AgentMonitor.staleAfter + 5))
+check(builtIn.state(for: "app.builtin") == .idle, "内置: 10 分钟没有事件才清掉")
+builtIn.handle(event: "UserPromptSubmit", sessionID: "y", from: 1)
+builtIn.resetAll()
+check(builtIn.state(for: "app.builtin") == .idle, "重置: 一键清掉所有动画状态")
+
 // 6. 配对智能体：登记文件、事件日志、提示词。
 let agentsDir = AgentRegistry.directory
 try fm.createDirectory(at: agentsDir, withIntermediateDirectories: true)
@@ -138,7 +165,7 @@ monitor2.handle(event: "Stop", sessionID: "s1", from: 1, agent: "workbuddy")
 monitor2.handle(event: "Stop", sessionID: "s9", from: 1)
 let activity = AgentRegistry.lastActivity()
 check(activity["workbuddy"]?.event == "Stop" && activity["workbuddy"]?.bundleID == "app.host", "活动: 日志里按 agent 取最近一次事件和所在 App")
-check(activity["-"] == nil && activity.count == 1, "活动: 没带 agent id 的事件不进配对列表")
+check(activity["-"] == nil && activity[""] == nil, "活动: 没带 agent id 的事件不进配对列表")
 let unresolved = AgentMonitor()
 unresolved.ownerResolver = { _ in nil }
 unresolved.handle(event: "Stop", sessionID: "s2", from: 1, agent: "lost")

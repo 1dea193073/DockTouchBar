@@ -34,6 +34,8 @@ final class AgentMonitor {
     private struct Session {
         var state: AgentState
         var lastEvent: Date
+        /// 配对智能体的 id（内置的 Claude Code / Codex 没有）。靠自觉调脚本的智能体不一定每次都发 Stop，所以对它们更宽容。
+        var agent: String?
     }
 
     /// App 的 bundleID → 会话 ID → 会话。只在主线程读写。
@@ -42,12 +44,21 @@ final class AgentMonitor {
     private var acceptSource: DispatchSource?
     private var staleTimer: Timer?
     /// Stop 不会在用户按 Esc 打断时触发；工作中的会话超过这么久没有任何事件，就当没发生过，免得动画一直转。
-    private static let staleAfter: TimeInterval = 600
+    /// 内置助手有 hook，每步都发心跳，给 10 分钟；配对智能体靠自觉调脚本，常常漏发，只给 3 分钟（提示词要求它每步发一次 PostToolUse 续期）。
+    static let staleAfter: TimeInterval = 600
+    static let pairedStaleAfter: TimeInterval = 180
 
     func state(for bundleID: String) -> AgentState {
         guard isEnabled, let group = sessions[bundleID], !group.isEmpty else { return .idle }
         if group.values.contains(where: { $0.state == .working }) { return .working }
         return .done
+    }
+
+    /// 清掉所有图标上的动画状态（动画卡住时用，设置里有按钮）。
+    func resetAll() {
+        guard !sessions.isEmpty else { return }
+        sessions.removeAll()
+        onChange?()
     }
 
     /// 用户点了图标：把这个 App 里“做完了”的会话清掉。
@@ -130,7 +141,9 @@ final class AgentMonitor {
                 sessionID = json["session_id"] as? String
             }
             DispatchQueue.main.async { [weak self] in
-                self?.handle(event: event, sessionID: sessionID ?? "pid-\(ppid)", from: ppid, agent: agent)
+                // 没带会话 id 时：配对智能体用自己的 id 当会话（它每次调脚本的进程号都不同，用进程号永远对不上开始和结束）；内置的用进程号。
+                let session = sessionID ?? agent.map { "agent-\($0)" } ?? "pid-\(ppid)"
+                self?.handle(event: event, sessionID: session, from: ppid, agent: agent)
             }
         }
     }
@@ -146,20 +159,29 @@ final class AgentMonitor {
         let now = Date()
         switch event {
         case "UserPromptSubmit":
-            group[sessionID] = Session(state: .working, lastEvent: now)
+            group[sessionID] = Session(state: .working, lastEvent: now, agent: agent)
         case "PostToolUse", "Notification":
             // 心跳。做完之后迟到的事件（子任务收尾等）不能把状态翻回去。
             if var session = group[sessionID] {
                 session.lastEvent = now
                 group[sessionID] = session
             } else {
-                group[sessionID] = Session(state: .working, lastEvent: now)
+                group[sessionID] = Session(state: .working, lastEvent: now, agent: agent)
             }
         case "Stop":
-            group[sessionID] = Session(state: .done, lastEvent: now)
+            group[sessionID] = Session(state: .done, lastEvent: now, agent: agent)
+            // 配对智能体的 Stop 没带对会话 id 也没关系：它这个 id 下还在“工作中”的，一起算做完。
+            if let agent {
+                for (id, session) in group where session.agent == agent && session.state == .working {
+                    group[id] = Session(state: .done, lastEvent: now, agent: agent)
+                }
+            }
         case "SessionEnd", "Interrupt":
             // 会话结束，或用户按 Esc 打断（Codex 有 Interrupt 事件；Claude Code 没有，靠超时兜底）：直接回到空闲，不显示“做完”。
             group[sessionID] = nil
+            if let agent {
+                for (id, session) in group where session.agent == agent && session.state == .working { group[id] = nil }
+            }
         default:
             return
         }
@@ -183,11 +205,14 @@ final class AgentMonitor {
         }
     }
 
-    private func dropStaleSessions() {
-        let cutoff = Date().addingTimeInterval(-Self.staleAfter)
+    func dropStaleSessions(now: Date = Date()) {
         var changed = false
         for (bundleID, group) in sessions {
-            let kept = group.filter { $0.value.state == .done || $0.value.lastEvent > cutoff }
+            let kept = group.filter { _, session in
+                if session.state == .done { return true }
+                let limit = session.agent != nil ? Self.pairedStaleAfter : Self.staleAfter
+                return now.timeIntervalSince(session.lastEvent) < limit
+            }
             if kept.count != group.count {
                 sessions[bundleID] = kept.isEmpty ? nil : kept
                 changed = true

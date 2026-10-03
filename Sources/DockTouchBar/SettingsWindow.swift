@@ -648,6 +648,11 @@ struct PairingPage: View {
                          "No agent has paired through the prompt yet. Hand the prompt above to an agent."))
                 .font(.caption).foregroundStyle(.secondary)
         }
+        HStack {
+            Text(L10n.tr("图标上的动画卡住了？", "Animation stuck on an icon?")).font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button(L10n.tr("清除所有动画状态", "Clear all animation states")) { AgentMonitor.shared.resetAll() }
+        }
         Text(L10n.tr("“移除”只删除这里的登记，不会改动智能体自己的配置；要还原它的配置，用“复制取消配对提示词”交给它。",
                      "“Remove” only deletes the registration here and doesn't touch the agent's own config; to undo its config, hand it the unpair prompt."))
             .font(.caption).foregroundStyle(.secondary)

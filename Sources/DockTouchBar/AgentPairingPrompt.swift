@@ -24,8 +24,8 @@ enum AgentPairingPrompt {
 
         【只用这 5 个事件】
         UserPromptSubmit —— 用户交给你任务、你开始工作时
-        PostToolUse —— 你每完成一步（跑完一个命令/工具）之后。可选；超过 10 分钟没有任何事件，会被当作已中断
-        Stop —— 你做完这一轮、停下来等用户时
+        PostToolUse —— 你每完成一步（跑完一个命令/工具）之后，尽量都发一次作为心跳。超过 3 分钟没有任何事件，会被当作已中断，动画就停了
+        Stop —— 你做完这一轮、停下来等用户时。每个任务都必须以 Stop（被打断则 Interrupt）收尾，哪怕出错了
         Interrupt —— 用户中途打断你时
         SessionEnd —— 会话关闭时
 
@@ -67,8 +67,8 @@ enum AgentPairingPrompt {
 
         [Use only these 5 events]
         UserPromptSubmit — the user hands you a task and you start working
-        PostToolUse — after each step you finish (a command or tool call). Optional; with no events for 10 minutes the task is treated as interrupted
-        Stop — you finish this turn and wait for the user
+        PostToolUse — after each step you finish (a command or tool call); send one every time as a heartbeat. With no events for 3 minutes the task is treated as interrupted and the animation stops
+        Stop — you finish this turn and wait for the user. Every task must end with Stop (or Interrupt if cut off), even when it failed
         Interrupt — the user interrupts you
         SessionEnd — the session closes
 
