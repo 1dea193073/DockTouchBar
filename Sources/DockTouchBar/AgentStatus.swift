@@ -49,6 +49,16 @@ final class AgentMonitor {
     private var acceptSource: DispatchSource?
     private var staleTimer: Timer?
     private var interruptTimer: Timer?
+    private var fileTimer: Timer?
+    /// 看豆包自己写的会话文件（它不一定肯照提示词上报）。
+    lazy var doubaoWatcher: DoubaoSessionWatcher = {
+        let watcher = DoubaoSessionWatcher()
+        watcher.emit = { [weak self] event, session, agent in
+            self?.handle(event: event, sessionID: session, from: 0, agent: agent, lenient: true,
+                         detail: "src=files", bundleID: DoubaoSessionWatcher.bundleID)
+        }
+        return watcher
+    }()
     /// Stop 不会在用户按 Esc 打断时触发；工作中的会话超过这么久没有任何事件，就当没发生过，免得动画一直转。
     /// 用 hook 的有心跳，给 10 分钟；手动调脚本的常常漏发，只给 3 分钟（提示词要求它每步发一次 PostToolUse 续期）。
     static let staleAfter: TimeInterval = 600
@@ -110,6 +120,7 @@ final class AgentMonitor {
 
         staleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.dropStaleSessions() }
         interruptTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.scanTranscriptsForInterrupts() }
+        fileTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.doubaoWatcher.poll() }
     }
 
     func stop() {
@@ -120,6 +131,8 @@ final class AgentMonitor {
         staleTimer = nil
         interruptTimer?.invalidate()
         interruptTimer = nil
+        fileTimer?.invalidate()
+        fileTimer = nil
         unlink(Self.socketURL.path)
     }
 
@@ -156,6 +169,16 @@ final class AgentMonitor {
                 reply += checkReply(agent: agent, pid: ppid)
                 continue
             }
+            // 验证、登记：由 App 来判定通过与否、由 App 来写登记文件，不让智能体自己判断、自己手写。
+            if event == "Verify" {
+                reply += verifyReply(agent: agent, pid: ppid)
+                continue
+            }
+            if event == "Register" {
+                let fields = parts.count == 3 ? parts[2].split(separator: "\t", omittingEmptySubsequences: false).map(String.init) : []
+                reply += registerReply(agent: agent, fields: fields)
+                continue
+            }
             var json: [String: Any]?
             if parts.count == 3 { json = (try? JSONSerialization.jsonObject(with: Data(parts[2].utf8))) as? [String: Any] }
             let sessionID = json?["session_id"] as? String
@@ -186,14 +209,100 @@ final class AgentMonitor {
             lines.append("host_app=\(owner) (\(name))")
         } else {
             lines.append(L10n.isChinese
-                ? "host_app=NOT_FOUND 从这条命令的进程往上找不到有 Dock 图标的 App，所以这样发的事件不会让任何图标出现动画。请告诉用户，不要说成功。"
-                : "host_app=NOT_FOUND no app with a Dock icon was found above this command's process, so events sent this way won't animate any icon. Tell the user; don't claim success.")
+                ? "host_app=NOT_FOUND 从这条命令的进程往上找不到有 Dock 图标的 App，所以这样发的事件不会让任何图标出现动画。请停下来告诉用户，不要发测试事件、不要登记，也不要伪装 App 绕过去。"
+                : "host_app=NOT_FOUND no app with a Dock icon was found above this command's process, so events sent this way won't animate any icon. Stop and tell the user; don't send test events, don't register, and don't fake an app to get around it.")
+        }
+        if let owner {
+            // 向下兼容：这个软件 App 自己就能看出它在不在工作，智能体什么都不用配。
+            if Self.builtinWatchedApps[owner] != nil {
+                lines.append(L10n.isChinese
+                    ? "watch=builtin 这个软件的工作状态由 \(AppInfo.name) 直接监视，不需要你修改任何配置、不需要写规则。跳过接入步骤，直接 --verify，通过后 --register（方法写 passive，不用列文件）。"
+                    : "watch=builtin this app's working state is watched directly by \(AppInfo.name); you don't need to change any config or write any rule. Skip the connect step: run --verify, then --register after PASS (method passive, no files to list).")
+            } else {
+                lines.append(L10n.isChinese
+                    ? "watch=none 需要你自己接入：按提示词选方案 A（hook）或方案 B（长期指令）。"
+                    : "watch=none you have to connect yourself: pick Option A (hooks) or Option B (long-term instructions) as the prompt says.")
+            }
         }
         if let agent {
             let registered = AgentRegistry.load().contains { $0.id == agent }
             lines.append("agent=\(agent) registered=\(registered ? "yes" : "no")")
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// App 自己能看出工作状态的软件（bundleID → 名字）：不需要智能体配合，配对时只要验证和登记。目前是豆包，见 `DoubaoSessionWatcher`。
+    static let builtinWatchedApps = [DoubaoSessionWatcher.bundleID: "Doubao"]
+
+    /// 通过 `--verify` 的智能体 id → 所在 App 和时间。登记（`--register`）只认这里有、且一小时以内的。可以在任何线程访问。
+    private var verified: [String: (bundleID: String, date: Date)] = [:]
+    private let verifiedLock = NSLock()
+    static let verifiedValidFor: TimeInterval = 3600
+
+    /// 验证：App 自己判断找没找到智能体所在的 App。找到了就在那个图标上放一遍“工作中 → OK”，并回 PASS；没找到回 FAIL，什么都不记。
+    /// 智能体只需要把这一行原样回报，不用自己发测试事件、读日志、判断 app= 对不对。
+    func verifyReply(agent: String?, pid: pid_t) -> String {
+        guard let agent, AgentRegistry.isValidID(agent) else {
+            return L10n.isChinese
+                ? "FAIL 没带合法的 id（只能用小写字母、数字、短横线）。用法：--verify <你的id>。停下来告诉用户。\n"
+                : "FAIL missing or invalid id (lowercase letters, digits, dashes only). Usage: --verify <your-id>. Stop and tell the user.\n"
+        }
+        guard let owner = ownerResolver(pid) else {
+            return L10n.isChinese
+                ? "FAIL host_app=NOT_FOUND 找不到你所在的 App，验证没通过，也没有记下任何东西。立刻停下来，把这行原样告诉用户，不要发测试事件、不要登记、不要伪装 App 或冒充 bundle id 绕过去。\n"
+                : "FAIL host_app=NOT_FOUND your app wasn't found, so verification failed and nothing was recorded. Stop right now and give the user this line as is; don't send test events, don't register, and don't fake an app or bundle id to get around it.\n"
+        }
+        verifiedLock.lock()
+        verified[agent] = (owner, Date())
+        verifiedLock.unlock()
+        DispatchQueue.main.async { [weak self] in
+            self?.recordActivity(agent: agent, event: "Stop", bundleID: owner)
+            self?.simulate(bundleID: owner)
+        }
+        let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: owner)
+            .map { FileManager.default.displayName(atPath: $0.path) } ?? owner
+        return L10n.isChinese
+            ? "PASS host_app=\(owner) (\(name))。用户的 Touch Bar 上，这个 App 的图标现在应该在显示字符雨，几秒后显示 OK。下一步：用 --register 登记。\n"
+            : "PASS host_app=\(owner) (\(name)). On the user's Touch Bar the icon of this app should now show the falling digits, then OK. Next step: register with --register.\n"
+    }
+
+    /// 登记：只有这个 id 刚通过 `--verify` 才收。字段：显示名、方法（hook 或 instructions）、一句话说明、改过的文件（绝对路径，可以没有）。
+    func registerReply(agent: String?, fields: [String], now: Date = Date()) -> String {
+        func fail(_ zh: String, _ en: String) -> String { "FAIL " + (L10n.isChinese ? zh : en) + "\n" }
+        guard let agent, AgentRegistry.isValidID(agent) else {
+            return fail("没带合法的 id。用法：--register <id> \"<显示名>\" <hook|instructions> \"<一句话说明>\" <文件绝对路径…>。停下来告诉用户。",
+                        "missing or invalid id. Usage: --register <id> \"<display name>\" <hook|instructions> \"<one-line note>\" <absolute file paths…>. Stop and tell the user.")
+        }
+        verifiedLock.lock()
+        let passed = verified[agent]
+        verifiedLock.unlock()
+        guard let passed, now.timeIntervalSince(passed.date) < Self.verifiedValidFor else {
+            return fail("这个 id 还没有通过 --verify（或已超过一小时）。先运行 --verify \(agent)，看到 PASS 再来登记；如果得到的是 FAIL，就停下来告诉用户。",
+                        "this id hasn't passed --verify (or it was over an hour ago). Run --verify \(agent) first and register only after PASS; if you got FAIL, stop and tell the user.")
+        }
+        let name = fields.first.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : String($0.prefix(60)) } ?? agent
+        let method = fields.count > 1 ? fields[1].trimmingCharacters(in: .whitespaces).lowercased() : ""
+        guard ["hook", "instructions", "passive"].contains(method) else {
+            return fail("方法只能是 hook（用了软件自己的 hook）、instructions（写进了长期指令），或 passive（--check 说 watch=builtin，没改任何配置）。",
+                        "method must be hook (you used the app's own hooks), instructions (you wrote it into long-term instructions), or passive (--check said watch=builtin and you changed no config).")
+        }
+        guard method != "passive" || Self.builtinWatchedApps[passed.bundleID] != nil else {
+            return fail("这个软件没有内置监视，不能用 passive。请按提示词选方案 A 或 B 接入，再用 hook 或 instructions 登记。",
+                        "this app has no built-in watcher, so passive isn't allowed. Connect with Option A or B as the prompt says and register as hook or instructions.")
+        }
+        let notes = fields.count > 2 ? String(fields[2].trimmingCharacters(in: .whitespaces).prefix(300)) : ""
+        let files = fields.dropFirst(3).map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.hasPrefix("/") }.prefix(20).map { String($0.prefix(300)) }
+        let json: [String: Any] = ["id": agent, "name": name, "method": method, "files": Array(files), "notes": notes, "host": passed.bundleID]
+        do {
+            try FileManager.default.createDirectory(at: AgentRegistry.directory, withIntermediateDirectories: true)
+            let data = try JSONSerialization.data(withJSONObject: json)
+            try data.write(to: AgentRegistry.directory.appendingPathComponent("\(agent).json"), options: .atomic)
+        } catch {
+            return fail("写登记文件失败：\(error.localizedDescription)。停下来告诉用户。", "couldn't write the registration file: \(error.localizedDescription). Stop and tell the user.")
+        }
+        return L10n.isChinese
+            ? "OK 已登记「\(name)」（\(method)，改过的文件 \(files.count) 个）。现在可以按汇报模板告诉用户结果了。\n"
+            : "OK registered \"\(name)\" (\(method), \(files.count) changed file(s)). You can now report to the user with the report template.\n"
     }
 
     /// 配对列表里的“试一下”：在这个 App 的图标上放 4 秒“工作中”，再显示“做完”，3 秒后自己收掉。不用等智能体跑任务就能看到动画。
@@ -229,8 +338,9 @@ final class AgentMonitor {
     // MARK: - 状态机
 
     func handle(event: String, sessionID: String, from pid: pid_t, agent: String? = nil,
-                lenient: Bool = false, transcriptPath: String? = nil, detail: String = "") {
-        let owner = ownerResolver(pid)
+                lenient: Bool = false, transcriptPath: String? = nil, detail: String = "", bundleID knownApp: String? = nil) {
+        // 文件监视器（豆包）没有进程可查，直接告诉它所在的 App。
+        let owner = knownApp ?? ownerResolver(pid)
         record("\(event) agent=\(agent ?? "-") session=\(sessionID.prefix(8)) pid=\(pid) app=\(owner ?? "-")" + (detail.isEmpty ? "" : " " + detail))
         if let agent { recordActivity(agent: agent, event: event, bundleID: owner) }
         guard let bundleID = owner else { return }
@@ -363,18 +473,44 @@ final class AgentMonitor {
     // MARK: - 进程
 
     /// 从 `pid` 一路往父进程找，第一个有 Dock 图标的 App 就是会话所在的 App。
+    /// 找不到时（比如豆包的命令跑在 XPC 服务里，父进程直接是 launchd，和主 App 没有父子关系）再看链上进程的可执行文件
+    /// 位于哪个 .app 包里：`DoubaoWork.app/…/AgentInfraService.xpc/…` 就属于正在运行的 DoubaoWork。
     static func owningApp(of pid: pid_t) -> String? {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         var current = pid
+        var paths: [String] = []
         for _ in 0..<32 where current > 1 {
             if current != ownPID, let app = NSRunningApplication(processIdentifier: current),
                app.activationPolicy == .regular, let id = app.bundleIdentifier {
                 return id
             }
-            guard let parent = parentPID(of: current), parent != current else { return nil }
+            if let path = executablePath(of: current) { paths.append(path) }
+            guard let parent = parentPID(of: current), parent != current else { break }
             current = parent
         }
+        let running = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.processIdentifier != ownPID }
+            .compactMap { app in app.bundleIdentifier.flatMap { id in app.bundleURL.map { (id: id, path: $0.path) } } }
+        for path in paths {
+            if let id = bundleID(containing: path, among: running) { return id }
+        }
         return nil
+    }
+
+    /// 可执行文件路径在哪个正在运行的 App 包里。从最外层的 .app 开始匹配（Helper、XPC 服务都嵌在主 App 里面）。
+    static func bundleID(containing executablePath: String, among running: [(id: String, path: String)]) -> String? {
+        let parts = executablePath.split(separator: "/", omittingEmptySubsequences: false)
+        for index in parts.indices where parts[index].hasSuffix(".app") {
+            let bundlePath = parts[...index].joined(separator: "/")
+            if let match = running.first(where: { $0.path == bundlePath }) { return match.id }
+        }
+        return nil
+    }
+
+    private static func executablePath(of pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4096)
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(cString: buffer)
     }
 
     private static func parentPID(of pid: pid_t) -> pid_t? {

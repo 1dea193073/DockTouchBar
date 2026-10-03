@@ -550,6 +550,8 @@ private struct SettingsForm: View {
 struct PairingPage: View {
     @State private var copied = false
     @State private var copiedUnpair: String?
+    /// 取消配对（passive）后要让列表重新读一遍登记。
+    @State private var listRevision = 0
 
     var body: some View {
         Form {
@@ -608,6 +610,7 @@ struct PairingPage: View {
     }
 
     @ViewBuilder private var list: some View {
+        let _ = listRevision
         let activity = AgentRegistry.lastActivity()
         let paired = AgentRegistry.load()
         ForEach(paired) { agent in
@@ -621,10 +624,18 @@ struct PairingPage: View {
                     if let host = seen?.bundleID {
                         Button(L10n.tr("试一下", "Try it")) { AgentMonitor.shared.simulate(bundleID: host) }
                     }
-                    Button(copiedUnpair == agent.id ? L10n.tr("已复制 ✓", "Copied ✓") : L10n.tr("复制取消配对提示词", "Copy unpair prompt")) {
-                        copy(AgentPairingPrompt.unpairText(agent))
-                        copiedUnpair = agent.id
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copiedUnpair = nil }
+                    if agent.method == "passive" {
+                        // 没改过任何配置，没什么要让它还原的：直接删登记，App 也不再看它。
+                        Button(L10n.tr("取消配对", "Unpair")) {
+                            AgentRegistry.remove(id: agent.id)
+                            listRevision += 1
+                        }
+                    } else {
+                        Button(copiedUnpair == agent.id ? L10n.tr("已复制 ✓", "Copied ✓") : L10n.tr("复制取消配对提示词", "Copy unpair prompt")) {
+                            copy(AgentPairingPrompt.unpairText(agent))
+                            copiedUnpair = agent.id
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copiedUnpair = nil }
+                        }
                     }
                 }
                 Text(status(seen)).font(.caption).foregroundStyle(.secondary)

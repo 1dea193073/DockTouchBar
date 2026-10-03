@@ -5,11 +5,13 @@ import Foundation
 struct PairedAgent: Identifiable, Equatable {
     let id: String
     let name: String
-    /// 怎么接的：hook（用它自己的 hook 机制）或 instructions（写进它的长期指令里）。
+    /// 怎么接的：hook（用它自己的 hook 机制）、instructions（写进它的长期指令里）或 passive（App 内置监视，没改任何配置）。
     let method: String
     /// 它改过的文件（绝对路径），取消配对时要还原。
     let files: [String]
     let notes: String
+    /// 验证时找到的所在 App 的 bundleID（`--register` 写入；老的登记没有）。
+    var host: String? = nil
 }
 
 /// 某个智能体最近一次发来的事件。
@@ -42,7 +44,8 @@ enum AgentRegistry {
             return PairedAgent(id: id, name: name,
                                method: String(((json["method"] as? String) ?? "").prefix(40)),
                                files: ((json["files"] as? [Any]) ?? []).compactMap { $0 as? String }.prefix(20).map { String($0.prefix(300)) },
-                               notes: String(((json["notes"] as? String) ?? "").prefix(300)))
+                               notes: String(((json["notes"] as? String) ?? "").prefix(300)),
+                               host: (json["host"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(120)) })
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 

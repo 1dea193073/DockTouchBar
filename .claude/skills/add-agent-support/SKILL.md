@@ -33,9 +33,25 @@ App 不再替任何助手改配置（早期的 Claude Code / Codex 内置连接�
 - **“已验证”看 `activity.json`**（App 自己写，按 agent id 存最近一次事件），不要看 `events.log`（它只是诊断日志，会被截断、被挪走）。不带 id 的旧 hook，用 `transcript_path` 里的 `/.claude/`、`/.codex/` 认出是谁。
 - Codex 的 hook 要用户先在 ChatGPT 设置 → Hooks → 全部信任（命令行 `/hooks`），按 hook 内容的哈希记录，改命令字符串就要重新信任；排查用 `python3 tools/check-codex-hooks.py`。不要替用户伪造信任。
 
+## 案例：豆包（DoubaoWork）——给能力弱的智能体设计流程
+
+事故经过：豆包的命令跑在 `AgentInfraService.xpc` 里，父进程是 launchd，进程链上找不到 App，`--check` 回 `host_app=NOT_FOUND`。它没有停，而是编译了一个冒充 `com.work.pc.doubao` 的包装 App 去发测试事件，设置页因此显示“已验证”，真实任务却没有动画。教训，也是现在流程的设计依据：
+
+1. **判定权在 App，不在智能体。** 以前让智能体自己发测试事件、等两秒、读日志、判断 `app=` 对不对、手写登记 JSON，每一步都能糊弄。现在是 `--verify <id>`（App 自己判断，回 PASS/FAIL，PASS 时在那个图标上放一遍动画）和 `--register …`（App 写登记文件，只收刚通过 `--verify` 的 id，一小时内有效）。别再让智能体手写登记 JSON、别再让它读日志做判断。
+2. **App 要容忍恶劣环境，别指望智能体绕。** 宿主识别除了父进程链，还按链上进程的可执行文件路径落在哪个 `.app` 里匹配正在运行的 App（`owningApp(of:)` / `bundleID(containing:among:)`）。沙箱、XPC、容器里的智能体都应该直接 PASS。
+3. **红线放最前面，卡住的出口要写死。** 弱智能体碰到意外会“想办法解决”。提示词开头三条红线（不伪造、卡住就停并贴原始输出、只加不删），每一步写明“期望”，不一致就停；FAIL 的回复本身也写“停下来告诉用户，不要伪装”。
+4. **少参数、不要占位符。** 提示词里的命令直接是真实路径，不写要智能体自己替换的 `S`；不要它管会话 id（不带会话 id 时 App 用 `agent-<id>`，Stop 宽松收尾）；方案 B 的规则是三句可原样粘贴的话。
+5. **固定汇报模板。** 结果、方案、改过的文件、`--verify` 原始输出、需要用户做的事，便于用户一眼看出它有没有糊弄。
+
+6. **没有 hook 的弱智能体，不能只靠它自觉上报（方案 B 的先天缺陷）。** 豆包配对时一切正常（`--verify` PASS、登记成功），但真实任务里它一次都没调用脚本：规则写在它不读的 `~/AGENTS.md`，“长期记忆”里只有一句指针，纯搜索任务根本不用 Bash。所以对豆包加了**被动文件监视**（`AgentFileWatcher.swift` 的 `DoubaoSessionWatcher`，只读、每秒轮询、只在已配对豆包——登记 id 以 `doubao` 开头——时启用）：`.sessions/<会话>/agents/*/system/assignment.md` 追加 = 开始，`trajectory.jsonl` 追加 = 心跳，最后一行是不带工具调用的 assistant 回复 = 做完；回复行有时迟迟不写，所以静默 60 秒也按做完。事件走 `handle(…, bundleID:)`，直接落在 `com.work.pc.doubao` 上。豆包升级后文件结构变了就会失效，现象是 `events.log` 里没有 `src=files` 的行。再遇到类似的智能体：先用文件变化记录器（轮询它数据目录的 mtime）看它工作时哪些文件会稳定变化，能被动感知就别指望它自觉。
+
+7. **向下兼容的三档，由 App 决定，不让智能体猜。** `--check` 的回复里有 `watch=builtin` 或 `watch=none`（`AgentMonitor.builtinWatchedApps`）：① 有自己 hook 的走 hook，最可靠；② `watch=builtin`（App 内置监视，目前只有豆包）：智能体**什么都不用配置**，只做 `--verify` + `--register … passive`（App 要求 passive 只能用在有内置监视的软件上，登记里记下 `host`，监视器按 `host` 启用，不要求 id 叫什么，取消配对 = 直接删登记）；③ `watch=none` 才走方案 B（长期指令，靠自觉，最不可靠）。**给一个新软件加内置监视**：先用文件变化记录器确认它工作时有稳定变化的文件，再写一个像 `DoubaoSessionWatcher` 的只读监视器，把它的 bundleID 加进 `builtinWatchedApps`，并在 `tools/verify-agent-hooks/main.swift` 补用例。
+
+新增或调整流程后，用真实的弱智能体重新跑一遍配对提示词（豆包、千问、WorkBuddy），对照 `events.log` 和设置页确认。
+
 ## 排查“没反应 / 卡住”
 
-0. **先自检**：`"~/Library/Application Support/DockTouchBarVibe/agent-hook.sh" --check <id> < /dev/null`，输出 `OK` + `host_app=…` 说明链路通且找到了所在 App；`NOT_RUNNING` = App 没开；`host_app=NOT_FOUND` = 进程链找不到有 Dock 图标的 App。配对提示词第 0 步也让智能体先跑它。脚本的 socket 路径可用环境变量 `DTB_SOCKET` 覆盖（测试用）。
+0. **先自检 / 验证**：`--verify <id>` 由 App 判定 PASS/FAIL（找不到宿主 App 就 FAIL，什么也不记）。自检：`"~/Library/Application Support/DockTouchBarVibe/agent-hook.sh" --check <id> < /dev/null`，输出 `OK` + `host_app=…` 说明链路通且找到了所在 App；`NOT_RUNNING` = App 没开；`host_app=NOT_FOUND` = 进程链找不到有 Dock 图标的 App。配对提示词第 0 步也让智能体先跑它。脚本的 socket 路径可用环境变量 `DTB_SOCKET` 覆盖（测试用）。
 1. `~/Library/Application Support/DockTouchBarVibe/events.log`：没有新行 = hook 没执行；有行但 `app=-` = 进程链没找到 App。
 2. 设置页配对列表底部的“清除动画状态”；每行的“试一下”在它的所在 App 图标上放 4 秒动画（不用等智能体跑任务）。
 3. Claude 桌面版里多个会话共用一个图标，任何一个会话卡在“工作中”整个图标都会动。

@@ -12,17 +12,26 @@ enum AgentHookInstaller {
         #!/bin/bash
         # \(AppInfo.name): forwards AI agent events to the app. Does nothing (and never fails) if the app isn't running.
         # Usage: agent-hook.sh <Event> [agent-id] [session-id] < /dev/null
-        #   Event: UserPromptSubmit | PostToolUse | Stop | Interrupt | SessionEnd
-        #        agent-hook.sh --check [agent-id]   prints whether the app is reachable and which host app it found
+        #   Event: UserPromptSubmit | PostToolUse | Stop | Interrupt | SessionEnd   (session-id is optional)
+        #   agent-hook.sh --check [agent-id]      is the app reachable, which host app did it find
+        #   agent-hook.sh --verify <agent-id>     the app runs the test itself and answers PASS or FAIL
+        #   agent-hook.sh --register <agent-id> <display-name> <hook|instructions> <notes> [file...]   only accepted after --verify passed
         # Agents with their own hooks pipe the hook JSON on stdin; agents that call this by hand pass a session-id instead.
         SOCK="${DTB_SOCKET:-$HOME/Library/Application Support/\(AppInfo.fileName)/agent.sock}"
-        if [ "$1" = "--check" ]; then
-          [ -S "$SOCK" ] || { echo "NOT_RUNNING \(AppInfo.name) is not running (no socket). Ask the user to open it."; exit 0; }
-          CHECK="Check"
-          case "$2" in ""|*[!A-Za-z0-9._-]*) ;; *) CHECK="Check|$2" ;; esac
-          { printf '%s\\t%s\\t\\n' "$CHECK" "$PPID"; sleep 1; } | /usr/bin/nc -U -w 2 "$SOCK" 2>/dev/null || echo "NOT_REACHABLE could not talk to the app"
-          exit 0
-        fi
+        case "$1" in --check|--verify|--register)
+          [ -S "$SOCK" ] || { echo "NOT_RUNNING \(AppInfo.name) is not running (no socket). Ask the user to open it, then stop and wait."; exit 0; }
+          MODE="$1"; ID="$2"
+          case "$ID" in ""|*[!A-Za-z0-9._-]*) ID="" ;; esac
+          NAME="Check"; [ "$MODE" = "--verify" ] && NAME="Verify"; [ "$MODE" = "--register" ] && NAME="Register"
+          [ -n "$ID" ] && NAME="$NAME|$ID"
+          EXTRA=""
+          if [ "$MODE" = "--register" ]; then
+            [ $# -ge 2 ] && shift 2 || shift $#
+            for A in "$@"; do A="${A//$'\t'/ }"; A="${A//$'\n'/ }"; A="${A//$'\r'/ }"; EXTRA="$EXTRA$A"$'\t'; done
+          fi
+          { printf '%s\t%s\t%s\n' "$NAME" "$PPID" "$EXTRA"; sleep 1; } | /usr/bin/nc -U -w 2 "$SOCK" 2>/dev/null || echo "NOT_REACHABLE could not talk to the app. Stop and tell the user."
+          exit 0 ;;
+        esac
         [ -S "$SOCK" ] || exit 0
         EVENT="$1"
         case "$2" in ""|*[!A-Za-z0-9._-]*) ;; *) EVENT="$1|$2" ;; esac

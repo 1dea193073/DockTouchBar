@@ -5,97 +5,105 @@ import Foundation
 enum AgentPairingPrompt {
     static func text() -> String {
         let script = AgentHookInstaller.scriptURL.path
-        let log = AgentRegistry.logURL.path
-        let agents = AgentRegistry.directory.path
         // 简体/繁体中文界面给中文提示词，其余语言给英文（智能体都读得懂）。
-        return L10n.isChinese ? chinese(script: script, log: log, agents: agents) : english(script: script, log: log, agents: agents)
+        return L10n.isChinese ? chinese(script: script) : english(script: script)
     }
 
-    private static func chinese(script: String, log: String, agents: String) -> String {
+    private static func chinese(script: String) -> String {
         """
-        你是一个 AI 智能体。我想让你和我 Mac 上的「\(AppInfo.name)」配对：它会在我的 Touch Bar 上、你所在 App 的图标上，在你「正在工作」时显示字符雨动画，你做完时显示 OK。请你自己完成接入，每一步都告诉我你做了什么。
+        你是一个 AI 智能体。请把你自己接入我 Mac 上的「\(AppInfo.name)」：你「正在工作」时，我的 Touch Bar 上你所在 App 的图标会显示字符雨，你做完时显示 OK。
 
-        【你要调用的东西】
-        脚本：\(script)
-        用法：\"\(script)\" <事件> <你的id> <会话id> < /dev/null
-        - 你的id：只能用小写字母、数字、短横线，用你自己的产品名（例如 workbuddy）。
-        - 会话id：同一次任务的所有事件必须用同一个。任务开始时生成一个短的随机串（例如 $(date +%s)-$RANDOM），这次任务里一直复用。
-        - 命令末尾一定要加 < /dev/null。脚本会立刻返回，从不报错；\(AppInfo.name) 没开时它什么也不做。
+        【三条红线，先读完再动手】
+        1. 不伪造。不要伪装成别的 App，不要编译或启动“包装 App”，不要冒充 bundle id，不要自己手写登记文件，不要编造验证结果。验证通过与否只看 \(AppInfo.name) 自己回复的 PASS 或 FAIL。
+        2. 卡住就停。任何一步的结果和下面写的“期望”不一样，立刻停下来，把命令和输出原样贴给我，然后等我回复。不要自己想办法绕过去。
+        3. 只加不删。改任何配置前先备份；不删除、不修改我已有的配置；文件格式不合法就不要动它，告诉我。
 
-        【只用这 5 个事件】
+        【你只需要这三条命令】（路径已经是真实的，原样用）
+        "\(script)" --verify <你的id> < /dev/null
+        "\(script)" --register <你的id> "<显示名>" <hook、instructions 或 passive> "<一句话说明>" <你改过的文件的绝对路径…> < /dev/null
+        "\(script)" <事件> <你的id> < /dev/null
+        - 你的id：小写字母、数字、短横线，用你自己的产品名（例如 workbuddy）。
+        - 命令末尾一定要加 < /dev/null。事件命令会立刻返回、从不报错；\(AppInfo.name) 没开时什么也不做。
+        - 你的命令跑在沙箱、容器、XPC 服务里都没关系，\(AppInfo.name) 会自己找到你所在的 App，你不需要为此改装任何东西。
+
+        【事件只有这 5 个】
         UserPromptSubmit —— 用户交给你任务、你开始工作时
-        PostToolUse —— 你每完成一步（跑完一个命令/工具）之后，尽量都发一次作为心跳。超过 3 分钟没有任何事件，会被当作已中断，动画就停了
-        Stop —— 你做完这一轮、停下来等用户时。每个任务都必须以 Stop（被打断则 Interrupt）收尾，哪怕出错了
+        PostToolUse —— 你每完成一步（跑完一个命令或工具）之后。超过 3 分钟没有任何事件，动画会被当作已中断而停掉
+        Stop —— 你做完这一轮、停下来等用户时。每个任务都要以 Stop 收尾，哪怕出错了
         Interrupt —— 用户中途打断你时
         SessionEnd —— 会话关闭时
 
-        【方案 A（优先）：用你所在软件自己的 hook / 生命周期回调】
-        1. 查你所在软件的官方文档，确认它是否支持 hook 或事件回调（配置文件位置、格式、事件名）。不要凭记忆写。
-        2. 改任何配置前先备份。只增加，不删除、不修改我已有的 hook 和配置；文件如果不是合法格式，不要动它，告诉我。如果配置里已经有调用上面这个脚本的旧条目（以前的版本留下的），把它们更新成带你的 id 的写法，不要重复添加。
-        3. 把上面 5 个事件映射到你软件里最接近的事件，让它们执行上面的脚本命令。
-        4. 如果你的软件要求我审核或信任新增的 hook，告诉我具体要在哪里点什么。不要绕过，不要伪造信任。
+        【步骤，按顺序做，每步看期望】
+        1. 自检：运行 "\(script)" --check <你的id> < /dev/null。期望：第一行以 OK 开头，并有 host_app=… 和 watch=… 两行。
+           若是 NOT_RUNNING：请我先打开 \(AppInfo.name)，然后停下等我。若是 host_app=NOT_FOUND：停下并汇报（红线 2）。
+           若 watch=builtin：这个软件的工作状态 \(AppInfo.name) 自己就能看到，你什么都不用配置：直接跳到第 4 步，登记（第 5 步）时方法写 passive、不用列文件。不要修改任何文件，不要写规则。
+           若 watch=none：继续第 2 步。
+        2. （只有 watch=none 才做）选方案：查你所在软件的官方文档，它支持 hook 或生命周期回调（并且你能确认配置文件的位置、格式、事件名）就用方案 A，否则用方案 B。不要凭记忆写；拿不准就选 B。
+        3. （只有 watch=none 才做）接入。
+           方案 A：把上面 5 个事件映射到软件里最接近的事件，让它们执行 "\(script)" <事件> <你的id> < /dev/null。如果配置里已经有调用这个脚本的旧条目（以前的版本留下的），改成带你的 id 的写法，不要重复添加。如果软件要求我审核或信任新增的 hook，告诉我具体在哪里点什么，不要绕过，不要伪造信任。
+           方案 B：把下面这段规则原样加进你的长期指令（AGENTS.md、规则、记忆、自定义指令之类），告诉我加在了哪个文件：
+           “每次用户交给我任务，先运行 "\(script)" UserPromptSubmit <你的id> < /dev/null。之后每完成一个命令或工具，运行 "\(script)" PostToolUse <你的id> < /dev/null。回复完用户、结束任务前，运行 "\(script)" Stop <你的id> < /dev/null（出错了也要运行）。”
+           （把规则里的 <你的id> 换成你真实的 id。）方案 B 靠你每次自觉照做，比 hook 靠不住，请如实告诉我。
+        4. 验证：运行 "\(script)" --verify <你的id> < /dev/null。期望：以 PASS 开头，我的 Touch Bar 上你所在 App 的图标出现字符雨、随后显示 OK。若是 FAIL，或没有 PASS：停下并汇报（红线 2）。
+        5. 登记：运行 "\(script)" --register <你的id> "<显示名>" <hook、instructions 或 passive> "<一句话说明做了什么>" <你改过的所有文件的绝对路径…> < /dev/null。期望：以 OK 开头。登记只有 --verify 通过后才会被接受。
 
-        【方案 B：你的软件没有 hook 时】
-        把下面这条规则加进你的长期指令里（例如 AGENTS.md、规则、记忆、自定义指令），并告诉我加在了哪里：
-        “每次开始处理用户的任务时，先运行 \"\(script)\" UserPromptSubmit <你的id> <会话id> < /dev/null；回复完用户、任务结束前，运行 \"\(script)\" Stop <你的id> <会话id> < /dev/null。”
-        这种方式比 hook 靠不住（取决于你每次是否照做），请如实告诉我。
-
-        【验证】
-        0. 先运行 \"\(script)\" --check <你的id>：应该输出 OK 和 host_app=（你所在 App 的 bundle id）。看到 NOT_RUNNING 请让我先打开 \(AppInfo.name)；host_app=NOT_FOUND 说明找不到你所在的 App，请如实告诉我。
-        1. 运行 \"\(script)\" UserPromptSubmit <你的id> test-1 < /dev/null，等 2 秒，再运行 \"\(script)\" Stop <你的id> test-1 < /dev/null。
-        2. 查看 \(log) 的最后几行：应该有 UserPromptSubmit 和 Stop，agent=<你的id>，并且 app= 是你所在 App 的 bundle id。如果 app=-，说明没找到你所在的 App，请如实告诉我，不要说成功。
-        3. 这时我的 Touch Bar 上，你所在 App 的图标应该出现过动画，然后显示 OK。
-
-        【登记】
-        验证通过后，把下面的 JSON 写到 \(agents)/<你的id>.json（目录不存在就创建）。文件名必须和 id 一致：
-        {"id":"<你的id>","name":"<显示名>","method":"hook 或 instructions","files":["你改过的所有文件的绝对路径"],"notes":"一句话说明做了什么"}
-
-        【最后】
-        用一小段话告诉我：你改了哪些文件、映射了哪些事件、有没有需要我手动做的步骤、验证结果。遇到任何问题请停下来告诉我，不要自己绕过限制。
+        【最后，按这个模板汇报，不要加别的】
+        结果：成功 / 卡住了
+        方案：A（hook）/ B（长期指令）/ P（passive，\(AppInfo.name) 直接监视，没改任何东西）
+        改过的文件：（绝对路径，没有就写“无”）
+        映射的事件：（方案 A 才写）
+        --verify 的原始输出：（原样贴）
+        需要我手动做的：（没有就写“无”）
+        卡住的话，写明卡在第几步、命令和原始输出。
         """
     }
 
-    private static func english(script: String, log: String, agents: String) -> String {
+    private static func english(script: String) -> String {
         """
-        You are an AI agent. I want you to pair with "\(AppInfo.name)" on my Mac: it shows a falling-digits animation on my Touch Bar, on the icon of the app you run in, while you work, and an OK when you finish. Please do the integration yourself and tell me what you did at every step.
+        You are an AI agent. Please connect yourself to "\(AppInfo.name)" on my Mac: while you work, the icon of the app you run in on my Touch Bar shows falling digits, and when you finish it shows OK.
 
-        [What you call]
-        Script: \(script)
-        Usage: "\(script)" <event> <your-id> <session-id> < /dev/null
+        [Three red lines — read them before you start]
+        1. Don't fake anything. Don't pretend to be another app, don't build or launch a "wrapper app", don't spoof a bundle id, don't hand-write the registration file, don't invent verification results. Whether verification passed is decided only by the PASS or FAIL that \(AppInfo.name) itself replies.
+        2. If stuck, stop. If any step's result differs from the "expected" below, stop right away, paste the command and its output to me as is, and wait for my reply. Don't try to work around it.
+        3. Only add, never remove. Back up any config before changing it; don't delete or modify my existing settings; if a file isn't valid, leave it alone and tell me.
+
+        [You only need these three commands] (the path is real; use it as is)
+        "\(script)" --verify <your-id> < /dev/null
+        "\(script)" --register <your-id> "<display name>" <hook, instructions or passive> "<one-line note>" <absolute paths of the files you changed…> < /dev/null
+        "\(script)" <event> <your-id> < /dev/null
         - your-id: lowercase letters, digits and dashes only; use your own product name (e.g. workbuddy).
-        - session-id: every event of the same task must use the same one. At the start of a task generate a short random string (e.g. $(date +%s)-$RANDOM) and reuse it for that task.
-        - Always end the command with < /dev/null. The script returns immediately and never fails; it does nothing when \(AppInfo.name) isn't running.
+        - Always end the command with < /dev/null. Event commands return immediately, never fail, and do nothing when \(AppInfo.name) isn't running.
+        - It doesn't matter if your commands run in a sandbox, a container or an XPC service: \(AppInfo.name) finds your app by itself, and you don't need to rig anything for that.
 
-        [Use only these 5 events]
+        [Only these 5 events]
         UserPromptSubmit — the user hands you a task and you start working
-        PostToolUse — after each step you finish (a command or tool call); send one every time as a heartbeat. With no events for 3 minutes the task is treated as interrupted and the animation stops
-        Stop — you finish this turn and wait for the user. Every task must end with Stop (or Interrupt if cut off), even when it failed
+        PostToolUse — after each step you finish (a command or tool call). With no events for 3 minutes the animation is treated as interrupted and stops
+        Stop — you finish this turn and wait for the user. Every task must end with Stop, even when it failed
         Interrupt — the user interrupts you
         SessionEnd — the session closes
 
-        [Option A (preferred): use your host app's own hooks / lifecycle callbacks]
-        1. Check the official docs of the app you run in for hooks or event callbacks (config file location, format, event names). Don't write from memory.
-        2. Back up any config before changing it. Only add; never delete or modify my existing hooks or settings. If a file isn't valid, leave it alone and tell me. If the config already contains older entries that call the script above (left by earlier versions), update them to the form with your id instead of adding duplicates.
-        3. Map the 5 events above to the closest events in your app and make them run the script command above.
-        4. If your app requires me to review or trust new hooks, tell me exactly where to click. Do not bypass it or fake trust.
+        [Steps — do them in order and check each expectation]
+        1. Self-check: run "\(script)" --check <your-id> < /dev/null. Expected: the first line starts with OK, followed by a host_app=… line and a watch=… line.
+           NOT_RUNNING: ask me to open \(AppInfo.name), then stop and wait. host_app=NOT_FOUND: stop and report (red line 2).
+           watch=builtin: \(AppInfo.name) can see this app's working state by itself and you configure nothing: jump to step 4, and when registering (step 5) use method passive and list no files. Don't modify any file or write any rule.
+           watch=none: continue with step 2.
+        2. (Only when watch=none) Pick a method: check the official docs of the app you run in. If it supports hooks or lifecycle callbacks (and you can confirm the config file location, format and event names), use Option A; otherwise Option B. Don't write from memory; if unsure, pick B.
+        3. (Only when watch=none) Connect.
+           Option A: map the 5 events above to the closest events in your app and make them run "\(script)" <event> <your-id> < /dev/null. If the config already has older entries that call this script (left by earlier versions), update them to the form with your id instead of adding duplicates. If your app requires me to review or trust new hooks, tell me exactly where to click; don't bypass it or fake trust.
+           Option B: add this rule as is to your long-term instructions (AGENTS.md, rules, memory, custom instructions…) and tell me which file:
+           "Whenever the user gives me a task, first run "\(script)" UserPromptSubmit <your-id> < /dev/null. After each command or tool call, run "\(script)" PostToolUse <your-id> < /dev/null. After replying to the user, before the task ends, run "\(script)" Stop <your-id> < /dev/null (also when it failed)."
+           (Replace <your-id> in the rule with your real id.) Option B depends on you following it every time, so it is less reliable than hooks; please tell me honestly.
+        4. Verify: run "\(script)" --verify <your-id> < /dev/null. Expected: it starts with PASS, and on my Touch Bar the icon of your app shows falling digits, then OK. If it says FAIL or doesn't say PASS: stop and report (red line 2).
+        5. Register: run "\(script)" --register <your-id> "<display name>" <hook, instructions or passive> "<one line on what you did>" <absolute paths of every file you changed…> < /dev/null. Expected: it starts with OK. Registration is only accepted after --verify passed.
 
-        [Option B: if your app has no hooks]
-        Add this rule to your long-term instructions (e.g. AGENTS.md, rules, memory, custom instructions) and tell me where you put it:
-        "When you start working on a user's task, first run "\(script)" UserPromptSubmit <your-id> <session-id> < /dev/null; after replying to the user and before the task ends, run "\(script)" Stop <your-id> <session-id> < /dev/null."
-        This is less reliable than hooks (it depends on you following it every time); please tell me honestly.
-
-        [Verify]
-        0. First run "\(script)" --check <your-id>: it should print OK and host_app= (the bundle id of the app you run in). NOT_RUNNING means ask me to open \(AppInfo.name); host_app=NOT_FOUND means your app wasn't found — tell me honestly.
-        1. Run "\(script)" UserPromptSubmit <your-id> test-1 < /dev/null, wait 2 seconds, then run "\(script)" Stop <your-id> test-1 < /dev/null.
-        2. Read the last lines of \(log): you should see UserPromptSubmit and Stop with agent=<your-id>, and app= should be the bundle id of the app you run in. If app=- the app wasn't found; tell me honestly instead of claiming success.
-        3. At that point the icon of your app on my Touch Bar should have animated and then shown OK.
-
-        [Register]
-        After verification passes, write this JSON to \(agents)/<your-id>.json (create the directory if needed). The file name must match the id:
-        {"id":"<your-id>","name":"<display name>","method":"hook or instructions","files":["absolute paths of every file you changed"],"notes":"one sentence on what you did"}
-
-        [Finally]
-        Tell me in a short paragraph: which files you changed, which events you mapped, any manual steps I need to do, and the verification result. If anything goes wrong, stop and tell me; don't work around restrictions.
+        [Finally, report with this template and add nothing else]
+        Result: success / stuck
+        Option: A (hook) / B (long-term instructions) / P (passive: \(AppInfo.name) watches it directly, nothing changed)
+        Files changed: (absolute paths; "none" if none)
+        Events mapped: (Option A only)
+        Raw output of --verify: (paste as is)
+        Manual steps for me: ("none" if none)
+        If stuck: say which step, and paste the command and its raw output.
         """
     }
 

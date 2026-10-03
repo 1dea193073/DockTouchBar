@@ -130,6 +130,111 @@ do {
     check(AgentRegistry.lastActivity()["lost"]?.bundleID == nil, "活动: 找不到所在 App 时 bundleID 为空，列表会提示")
 }
 
+// 4a. 进程链断了（XPC 服务的父进程是 launchd）时，按可执行文件所在的 .app 包认出宿主 App。
+do {
+    let running = [(id: "com.work.pc.doubao", path: "/Applications/DoubaoWork.app"), (id: "app.other", path: "/Applications/Other.app")]
+    let xpc = "/Applications/DoubaoWork.app/Contents/Helpers/DoubaoWork Browser.app/Contents/XPCServices/AgentInfraService.xpc/Contents/MacOS/AgentInfraService"
+    check(AgentMonitor.bundleID(containing: xpc, among: running) == "com.work.pc.doubao", "宿主: 嵌在主 App 里的 XPC 服务按路径认出主 App")
+    check(AgentMonitor.bundleID(containing: "/Applications/Other.app/Contents/MacOS/Other", among: running) == "app.other", "宿主: 主程序按路径认出自己")
+    check(AgentMonitor.bundleID(containing: "/bin/bash", among: running) == nil, "宿主: 不在任何 .app 里的进程认不出")
+    check(AgentMonitor.bundleID(containing: "/Applications/NotRunning.app/Contents/MacOS/x", among: running) == nil, "宿主: App 没在运行就认不出（不凭路径瞎猜）")
+    check(AgentMonitor.bundleID(containing: "/Applications/DoubaoWork.app.bak/Contents/MacOS/x", among: running) == nil, "宿主: 路径只是前缀相同不算")
+}
+
+// 4c. 豆包：不靠它上报，看它自己写的会话文件（assignment.md 开始、trajectory.jsonl 心跳和最终回复）。
+do {
+    let root = temp.appendingPathComponent("doubao-sessions", isDirectory: true)
+    let system = root.appendingPathComponent("s1/agents/m_x/system", isDirectory: true)
+    try fm.createDirectory(at: system, withIntermediateDirectories: true)
+    let assignment = system.appendingPathComponent("assignment.md")
+    let trajectory = system.appendingPathComponent("trajectory.jsonl")
+    var clock = Date(timeIntervalSince1970: 1_800_000_000)
+    func touch(_ url: URL, _ text: String? = nil, append: Bool = false) {
+        if let text {
+            if append, let handle = try? FileHandle(forWritingTo: url) { handle.seekToEndOfFile(); handle.write(Data(text.utf8)); try? handle.close() }
+            else { try? text.write(to: url, atomically: true, encoding: .utf8) }
+        }
+        try? fm.setAttributes([.modificationDate: clock], ofItemAtPath: url.path)
+    }
+    let user = #"{"role":"user","content":"hi"}"# + "\n"
+    let call = #"{"role":"assistant","content":"searching","tool_calls":[{"id":"1"}]}"# + "\n"
+    let result = #"{"role":"tool","content":"result","tool_call_id":"1"}"# + "\n"
+    let final = #"{"role":"assistant","content":"done"}"# + "\n"
+    touch(assignment, "old"); touch(trajectory, user)       // 启动前就有的会话
+    var events: [String] = []
+    let watcher = DoubaoSessionWatcher()
+    watcher.root = root
+    watcher.agentID = { "doubao" }
+    watcher.emit = { event, session, agent in events.append("\(event):\(session):\(agent)") }
+    func tick(_ seconds: TimeInterval = 1) { clock = clock.addingTimeInterval(seconds); watcher.poll(now: clock) }
+    tick()
+    check(events.isEmpty, "豆包: 启动前就有的会话只记现状，不当成新事件")
+    clock = clock.addingTimeInterval(1); touch(assignment, "new turn", append: true); tick(0)
+    check(events == ["UserPromptSubmit:doubao-s1:doubao"], "豆包: assignment.md 追加一条需求 = 开始工作")
+    events = []; clock = clock.addingTimeInterval(1); touch(trajectory, call, append: true); tick(0)
+    check(events == ["PostToolUse:doubao-s1:doubao"], "豆包: 记录里有新的一步（工具调用）= 心跳")
+    events = []; tick(5)
+    check(events.isEmpty, "豆包: 没有新内容时不重复发心跳")
+    clock = clock.addingTimeInterval(1); touch(trajectory, result, append: true); tick(0)
+    events = []; clock = clock.addingTimeInterval(1); touch(trajectory, final, append: true); tick(0)
+    check(events == ["Stop:doubao-s1:doubao"], "豆包: 最后一行是不带工具调用的 assistant 回复 = 做完")
+    events = []; tick(120)
+    check(events.isEmpty, "豆包: 做完之后不会再发 Stop")
+    // 回复那一行迟迟不写：最后一行是工具结果，静默超过 60 秒就算做完。
+    clock = clock.addingTimeInterval(1); touch(assignment, "turn 2", append: true); tick(0)
+    clock = clock.addingTimeInterval(1); touch(trajectory, user + call + result, append: true); tick(0)
+    events = []; tick(DoubaoSessionWatcher.quietDoneAfter - 5)
+    check(events.isEmpty, "豆包: 60 秒内没有新内容还算在工作（模型可能在生成回复）")
+    tick(10)
+    check(events == ["Stop:doubao-s1:doubao"], "豆包: 回复行一直没写，静默超过 60 秒按做完处理")
+    // 错过了 assignment.md：有新步骤也当作开始。
+    events = []; clock = clock.addingTimeInterval(1); touch(trajectory, call, append: true); tick(0)
+    check(events == ["UserPromptSubmit:doubao-s1:doubao"], "豆包: 没看到回合开头，有新步骤也当作开始工作")
+    // 启动之后新出现的会话从头算。
+    let system2 = root.appendingPathComponent("s2/agents/m_y/system", isDirectory: true)
+    try fm.createDirectory(at: system2, withIntermediateDirectories: true)
+    events = []; clock = clock.addingTimeInterval(1)
+    touch(system2.appendingPathComponent("assignment.md"), "first"); touch(system2.appendingPathComponent("trajectory.jsonl"), user + final); tick(0)
+    check(events == ["UserPromptSubmit:doubao-s2:doubao", "Stop:doubao-s2:doubao"], "豆包: 新会话一回合内开始又做完，开始和结束都有")
+    // 没配对的不看。
+    let unpaired = DoubaoSessionWatcher()
+    unpaired.root = root
+    unpaired.agentID = { nil }
+    var unpairedEvents = 0
+    unpaired.emit = { _, _, _ in unpairedEvents += 1 }
+    unpaired.poll(now: clock); touch(trajectory, call, append: true); unpaired.poll(now: clock.addingTimeInterval(1))
+    check(unpairedEvents == 0, "豆包: 没有配对（登记里没有 doubao）就不看它的文件")
+    check(DoubaoSessionWatcher.lastRowIsFinalReply(trajectory) == false, "豆包: 最后一行是工具调用时不是最终回复")
+    // 状态机接上：事件直接带所在 App，不用查进程。
+    let monitor = makeMonitor { _ in nil }
+    monitor.handle(event: "UserPromptSubmit", sessionID: "doubao-s1", from: 0, agent: "doubao", lenient: true, bundleID: DoubaoSessionWatcher.bundleID)
+    check(monitor.state(for: DoubaoSessionWatcher.bundleID) == .working, "豆包: 文件监视器的事件直接落在豆包的图标上")
+    monitor.handle(event: "Stop", sessionID: "doubao-s1", from: 0, agent: "doubao", lenient: true, bundleID: DoubaoSessionWatcher.bundleID)
+    check(monitor.state(for: DoubaoSessionWatcher.bundleID) == .done, "豆包: 做完显示 OK")
+}
+
+// 4d. 向下兼容：App 内置监视的软件（豆包），智能体什么都不用配，只要验证和登记（passive）。
+do {
+    let agentsDir = AgentRegistry.directory
+    let doubao = makeMonitor { _ in DoubaoSessionWatcher.bundleID }
+    let plain = makeMonitor { _ in "com.apple.finder" }
+    check(doubao.checkReply(agent: "dumb", pid: 1).contains("watch=builtin"), "兼容: 内置监视的软件，自检直接告诉智能体 watch=builtin（不用配置）")
+    check(plain.checkReply(agent: "smart", pid: 1).contains("watch=none"), "兼容: 没有内置监视的软件，自检说 watch=none（要自己接入）")
+    check(!makeMonitor { _ in nil }.checkReply(agent: "x", pid: 1).contains("watch="), "兼容: 找不到所在 App 时不报 watch")
+    check(plain.registerReply(agent: "smart", fields: ["Smart", "passive", ""]).hasPrefix("FAIL"), "兼容: 没验证就登记 passive 被拒绝")
+    _ = plain.verifyReply(agent: "smart", pid: 1)
+    let refused = plain.registerReply(agent: "smart", fields: ["Smart", "passive", ""])
+    check(refused.hasPrefix("FAIL") && refused.contains("passive") && !fm.fileExists(atPath: agentsDir.appendingPathComponent("smart.json").path), "兼容: 没有内置监视的软件不能用 passive 糊弄过去")
+    check(doubao.verifyReply(agent: "dumb", pid: 1).hasPrefix("PASS"), "兼容: 内置监视的软件 --verify 照样通过")
+    let accepted = doubao.registerReply(agent: "dumb", fields: ["豆包", "passive", "App 直接监视，没改任何配置"])
+    check(accepted.hasPrefix("OK"), "兼容: 内置监视的软件登记 passive 成功，不用列文件")
+    let entry = AgentRegistry.load().first { $0.id == "dumb" }
+    check(entry?.method == "passive" && entry?.files == [] && entry?.host == DoubaoSessionWatcher.bundleID, "兼容: 登记里记下 passive 和所在 App")
+    check(DoubaoSessionWatcher().agentID() == "dumb", "兼容: 豆包的文件监视按登记里的所在 App 启用，不要求 id 叫什么")
+    try? fm.removeItem(at: agentsDir.appendingPathComponent("dumb.json"))
+    check(DoubaoSessionWatcher().agentID() == nil, "兼容: 取消配对（删登记）后监视就停了")
+}
+
 // 4b. 升级时从日志回填，已配对的不退回“待验证”。
 do {
     try? fm.removeItem(at: AgentRegistry.activityURL)
@@ -190,8 +295,13 @@ check(AgentRegistry.migrateLegacyHooks().isEmpty, "迁移: 已有登记的不重
 // 7. 提示词和脚本。
 try AgentHookInstaller.refreshScript()
 let prompt = AgentPairingPrompt.text()
-check(prompt.contains(script) && prompt.contains(AgentRegistry.logURL.path) && prompt.contains(agentsDir.path), "提示词: 含脚本、日志、登记目录的真实路径")
+check(prompt.contains(script), "提示词: 含脚本的真实路径")
+check(!prompt.contains("\"S\""), "提示词: 命令里直接是真实路径，不留要智能体自己替换的占位符")
 check(prompt.contains("/dev/null") && prompt.contains("UserPromptSubmit") && prompt.contains("Interrupt") && prompt.contains("Stop"), "提示词: 含用法和事件")
+check(prompt.contains("--check") && prompt.contains("--verify") && prompt.contains("--register") && prompt.contains("NOT_FOUND"), "提示词: 自检、验证、登记三个命令和 NOT_FOUND 都有")
+check(!prompt.contains("会话id") && !prompt.contains(agentsDir.path), "提示词: 不要智能体管会话 id，也不让它手写登记文件")
+check(prompt.contains("伪装") && prompt.contains("卡住就停") && prompt.contains("汇报"), "提示词: 红线（不伪造、卡住就停）和汇报模板")
+check(prompt.contains("watch=builtin") && prompt.contains("watch=none") && prompt.contains("passive"), "提示词: 按 watch= 分流，内置监视的软件跳过接入、用 passive 登记")
 let scriptText = try String(contentsOfFile: script, encoding: .utf8)
 check(scriptText.contains("[ -t 0 ]") && scriptText.contains("$EVENT") && scriptText.contains("manual"), "脚本: 终端上不卡 stdin、支持 agent id、手动调用带 manual 标记")
 let mode = (try? fm.attributesOfItem(atPath: script))?[.posixPermissions] as? Int
@@ -222,7 +332,31 @@ do {
     check(!runCheck(["--check"]).contains("agent="), "自检: 不带 id 也能用")
     let lost = makeMonitor { _ in nil }
     check(lost.checkReply(agent: "x", pid: 1).contains("host_app=NOT_FOUND"), "自检: 找不到所在 App 时明确说 NOT_FOUND")
+    // 验证和登记：由 App 判定、由 App 写文件。
+    let early = runCheck(["--register", "newbie", "New Bie", "instructions", "note"])
+    check(early.hasPrefix("FAIL") && early.contains("--verify") && !fm.fileExists(atPath: agentsDir.appendingPathComponent("newbie.json").path), "登记: 没通过验证就登记会被拒绝，也不写文件")
+    check(runCheck(["--verify"]).hasPrefix("FAIL"), "验证: 不带 id 直接 FAIL")
+    let verify = runCheck(["--verify", "newbie"])
+    check(verify.hasPrefix("PASS") && verify.contains("host_app=com.apple.finder"), "验证: 找到所在 App 时 PASS，并报出所在 App")
+    check(runCheck(["--register", "newbie", "New Bie", "hook-ish", "note"]).hasPrefix("FAIL"), "登记: 方法不是 hook 或 instructions 会被拒绝")
+    check(runCheck(["--register", "other", "Other", "hook", "note"]).hasPrefix("FAIL"), "登记: 登记的 id 必须是刚通过验证的那个")
+    let registered = runCheck(["--register", "newbie", "New Bie", "Instructions", "加了一条规则", "/Users/x/AGENTS.md", "relative/path", "/Users/x/rules.md"])
+    check(registered.hasPrefix("OK"), "登记: 验证通过后登记成功")
+    let entry = AgentRegistry.load().first { $0.id == "newbie" }
+    check(entry?.name == "New Bie" && entry?.method == "instructions" && entry?.notes == "加了一条规则", "登记: App 写出的文件字段正确（方法统一小写）")
+    check(entry?.files == ["/Users/x/AGENTS.md", "/Users/x/rules.md"], "登记: 只收绝对路径")
+    check(AgentRegistry.load().contains { $0.id == "newbie" } && runCheck(["--check", "newbie"]).contains("registered=yes"), "登记: 自检能看到已登记")
+    // 过期的验证不能用来登记。
+    check(monitor.registerReply(agent: "newbie", fields: ["N", "hook", ""], now: Date().addingTimeInterval(AgentMonitor.verifiedValidFor + 1)).hasPrefix("FAIL"), "登记: 验证超过一小时就要重新验证")
     monitor.stop()
+    // 找不到所在 App：验证 FAIL、什么也不记，之后也登记不了。
+    let blind = makeMonitor { _ in nil }
+    blind.start()
+    Thread.sleep(forTimeInterval: 0.3)
+    let blindVerify = runCheck(["--verify", "ghost"])
+    check(blindVerify.hasPrefix("FAIL") && blindVerify.contains("NOT_FOUND") && blindVerify.contains("伪装") == (L10n.isChinese), "验证: 找不到所在 App 时 FAIL，并明确说不要伪装")
+    check(runCheck(["--register", "ghost", "Ghost", "hook", "n"]).hasPrefix("FAIL") && !fm.fileExists(atPath: agentsDir.appendingPathComponent("ghost.json").path), "登记: 找不到所在 App 的智能体登记不了")
+    blind.stop()
     Thread.sleep(forTimeInterval: 0.2)
     check(runCheck(["--check", "bot"]).hasPrefix("NOT_RUNNING"), "自检: App 没运行时说 NOT_RUNNING")
     check(runCheck(["Stop", "bot", "s1"]).isEmpty, "脚本: 发事件永远静默、不输出")
