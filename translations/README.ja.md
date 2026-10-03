@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
+  <img src="../assets/icon-256.png" alt="DockTouchBar" width="128" height="128">
 </p>
 
 <h1 align="center">DockTouchBar</h1>
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> ·
+  <a href="../README.md">English</a> ·
   <a href="README.zh-CN.md">简体中文</a> ·
   <a href="README.zh-Hant.md">繁體中文</a> ·
   <a href="README.ja.md">日本語</a> ·
@@ -31,7 +31,7 @@
   <a href="README.tr.md">Türkçe</a>
 </p>
 
-> **2 つのエディション：** 標準版 DockTouchBar と、AI コーディングエージェントの状況をアイコンにリアルタイム表示する DockTouchBar Vibe。違いとダウンロードは [English README](README.md#two-editions) をご覧ください。
+> **2 つのエディション：** 標準版 DockTouchBar と、AI コーディングエージェントの状況をアイコンにリアルタイム表示する DockTouchBar Vibe。違いとダウンロードは [English README](../README.md#two-editions) をご覧ください。
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13%2B-444.svg" alt="macOS 13+">
@@ -41,10 +41,10 @@
   <img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-1e88e5.svg" alt="PolyForm Noncommercial">
 </p>
 
-![Touch Bar の DockTouchBar](assets/touchbar-idle.gif)
+![Touch Bar の DockTouchBar](../assets/touchbar-idle.gif)
 *アイドル状態: アプリが下にアラインされ、右上にアクティブバッジドット（前面アプリは赤）; ピクセルアートのコーヒーカップに動くスチームが表示されます。*
 
-![長押しで終了: 四季アニメーション](assets/touchbar-seasons.gif)
+![長押しで終了: 四季アニメーション](../assets/touchbar-seasons.gif)
 *長押しで終了: 四季のピクセルアートカウントダウンシーン（春は走る犬 / 夏はヨット / 秋はキツネの森 / 冬はそり）。早期に離すとキャンセル、季節ごとの最終バーストが表示されます。*
 
 ### ⚡ エネルギー効率とネイティブパフォーマンス（以前のリリース測定）
@@ -184,7 +184,7 @@ assets/                 README 画像
 
 ## ライセンス
 
-[PolyForm Noncommercial License 1.0.0](LICENSE) — **個人的およびその他の非営利目的** で自由に使用、コピー、変更、共有できます。**商用利用はカバーされていない** ため、著者から別のライセンスが必要です; [hooosberg.com](https://hooosberg.com/) 経由でお問い合わせください。
+[PolyForm Noncommercial License 1.0.0](../LICENSE) — **個人的およびその他の非営利目的** で自由に使用、コピー、変更、共有できます。**商用利用はカバーされていない** ため、著者から別のライセンスが必要です; [hooosberg.com](https://hooosberg.com/) 経由でお問い合わせください。
 
 これはソース利用可能なライセンスであり、OSI 承認のオープンソースライセンスではありません。必須の注記: Copyright © 2026 hooosberg。
 

@@ -27,17 +27,17 @@
 
 <p align="center">
   <a href="README.md">English</a> ·
-  <a href="README.zh-CN.md">简体中文</a> ·
-  <a href="README.zh-Hant.md">繁體中文</a> ·
-  <a href="README.ja.md">日本語</a> ·
-  <a href="README.ko.md">한국어</a> ·
-  <a href="README.fr.md">Français</a> ·
-  <a href="README.de.md">Deutsch</a> ·
-  <a href="README.es.md">Español</a> ·
-  <a href="README.pt.md">Português</a> ·
-  <a href="README.ru.md">Русский</a> ·
-  <a href="README.it.md">Italiano</a> ·
-  <a href="README.tr.md">Türkçe</a>
+  <a href="translations/README.zh-CN.md">简体中文</a> ·
+  <a href="translations/README.zh-Hant.md">繁體中文</a> ·
+  <a href="translations/README.ja.md">日本語</a> ·
+  <a href="translations/README.ko.md">한국어</a> ·
+  <a href="translations/README.fr.md">Français</a> ·
+  <a href="translations/README.de.md">Deutsch</a> ·
+  <a href="translations/README.es.md">Español</a> ·
+  <a href="translations/README.pt.md">Português</a> ·
+  <a href="translations/README.ru.md">Русский</a> ·
+  <a href="translations/README.it.md">Italiano</a> ·
+  <a href="translations/README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
