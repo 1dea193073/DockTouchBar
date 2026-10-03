@@ -13,8 +13,16 @@ enum AgentHookInstaller {
         # \(AppInfo.name): forwards AI agent events to the app. Does nothing (and never fails) if the app isn't running.
         # Usage: agent-hook.sh <Event> [agent-id] [session-id] < /dev/null
         #   Event: UserPromptSubmit | PostToolUse | Stop | Interrupt | SessionEnd
+        #        agent-hook.sh --check [agent-id]   prints whether the app is reachable and which host app it found
         # Agents with their own hooks pipe the hook JSON on stdin; agents that call this by hand pass a session-id instead.
-        SOCK="$HOME/Library/Application Support/\(AppInfo.fileName)/agent.sock"
+        SOCK="${DTB_SOCKET:-$HOME/Library/Application Support/\(AppInfo.fileName)/agent.sock}"
+        if [ "$1" = "--check" ]; then
+          [ -S "$SOCK" ] || { echo "NOT_RUNNING \(AppInfo.name) is not running (no socket). Ask the user to open it."; exit 0; }
+          CHECK="Check"
+          case "$2" in ""|*[!A-Za-z0-9._-]*) ;; *) CHECK="Check|$2" ;; esac
+          { printf '%s\\t%s\\t\\n' "$CHECK" "$PPID"; sleep 1; } | /usr/bin/nc -U -w 2 "$SOCK" 2>/dev/null || echo "NOT_REACHABLE could not talk to the app"
+          exit 0
+        fi
         [ -S "$SOCK" ] || exit 0
         EVENT="$1"
         case "$2" in ""|*[!A-Za-z0-9._-]*) ;; *) EVENT="$1|$2" ;; esac

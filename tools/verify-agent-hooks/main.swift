@@ -12,7 +12,10 @@ let fm = FileManager.default
 let temp = fm.temporaryDirectory.appendingPathComponent("verify-agent-hooks-\(UUID().uuidString)", isDirectory: true)
 try fm.createDirectory(at: temp, withIntermediateDirectories: true)
 defer { try? fm.removeItem(at: temp) }
-AgentMonitor.supportDirectory = temp.appendingPathComponent("support", isDirectory: true)
+// Unix socket 的路径不能超过 104 字节，系统临时目录太长，支持目录要用短路径。
+let support = URL(fileURLWithPath: "/tmp/dtbv-\(UUID().uuidString.prefix(8))", isDirectory: true)
+defer { try? fm.removeItem(at: support) }
+AgentMonitor.supportDirectory = support
 AgentRegistry.homeDirectory = temp
 try fm.createDirectory(at: AgentMonitor.supportDirectory, withIntermediateDirectories: true)
 
@@ -119,7 +122,7 @@ do {
     monitor.handle(event: "Stop", sessionID: "s9", from: 1)
     let activity = AgentRegistry.lastActivity()
     check(activity["workbuddy"]?.event == "Stop" && activity["workbuddy"]?.bundleID == "app.one", "活动: 每个智能体最近一次事件和所在 App 存进 activity.json")
-    check(activity.count == 1, "活动: 没带 agent id 的事件不进配对列表")
+    check(activity["-"] == nil && activity[""] == nil, "活动: 没带 agent id 的事件不进配对列表")
     try? fm.removeItem(at: AgentRegistry.logURL)
     check(AgentRegistry.lastActivity()["workbuddy"] != nil, "活动: 日志没了（比如被挪走）验证状态也不丢")
     let lost = makeMonitor { _ in nil }
@@ -141,6 +144,17 @@ do {
     try "2026-10-03T20:00:00Z Stop agent=other session=x pid=1 app=-".write(to: AgentRegistry.logURL, atomically: true, encoding: .utf8)
     AgentRegistry.backfillActivityFromLog()
     check(AgentRegistry.lastActivity()["other"] == nil, "回填: 已经有 activity.json 的不再覆盖")
+}
+
+// 4c. 重启后第一条事件不能把别的智能体的记录覆盖掉。
+do {
+    try? fm.removeItem(at: AgentRegistry.activityURL)
+    let first = makeMonitor()
+    first.handle(event: "Stop", sessionID: "s", from: 1, agent: "alpha", lenient: true)
+    let restarted = makeMonitor { _ in "app.two" }
+    restarted.handle(event: "Stop", sessionID: "s", from: 1, agent: "beta", lenient: true)
+    let activity = AgentRegistry.lastActivity()
+    check(activity["alpha"] != nil && activity["beta"]?.bundleID == "app.two", "活动: 重启后第一条事件不会覆盖别的智能体的记录")
 }
 
 // 5. 登记文件。
@@ -183,5 +197,42 @@ check(scriptText.contains("[ -t 0 ]") && scriptText.contains("$EVENT") && script
 let mode = (try? fm.attributesOfItem(atPath: script))?[.posixPermissions] as? Int
 check(fm.fileExists(atPath: script) && mode == 0o755, "脚本: 已写入且可执行")
 
+// 7b. 自检：真的启动监听、真的跑脚本 --check。
+do {
+    let monitor = makeMonitor { _ in "com.apple.finder" }
+    monitor.start()
+    defer { monitor.stop() }
+    func runCheck(_ args: [String]) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [script] + args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardInput = FileHandle.nullDevice
+        process.environment = ProcessInfo.processInfo.environment.merging(["DTB_SOCKET": AgentMonitor.socketURL.path]) { $1 }
+        try? process.run()
+        process.waitUntilExit()
+        return String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    }
+    Thread.sleep(forTimeInterval: 0.3)
+    let output = runCheck(["--check", "bot"])
+    check(output.hasPrefix("OK") && output.contains("host_app=com.apple.finder") && output.contains("agent=bot registered=no"), "自检: App 在运行时回复 OK、所在 App、是否登记")
+    try #"{"id":"bot","name":"Bot"}"#.write(to: agentsDir.appendingPathComponent("bot.json"), atomically: true, encoding: .utf8)
+    check(runCheck(["--check", "bot"]).contains("registered=yes"), "自检: 登记后显示 registered=yes")
+    check(!runCheck(["--check"]).contains("agent="), "自检: 不带 id 也能用")
+    let lost = makeMonitor { _ in nil }
+    check(lost.checkReply(agent: "x", pid: 1).contains("host_app=NOT_FOUND"), "自检: 找不到所在 App 时明确说 NOT_FOUND")
+    monitor.stop()
+    Thread.sleep(forTimeInterval: 0.2)
+    check(runCheck(["--check", "bot"]).hasPrefix("NOT_RUNNING"), "自检: App 没运行时说 NOT_RUNNING")
+    check(runCheck(["Stop", "bot", "s1"]).isEmpty, "脚本: 发事件永远静默、不输出")
+}
+let trial = makeMonitor()
+trial.simulate(bundleID: "app.trial")
+check(trial.state(for: "app.trial") == .working, "试一下: 立刻显示工作中")
+
+// 顶层的 defer 在 exit 时不会执行，临时目录要在这里显式清掉。
+try? fm.removeItem(at: support)
+try? fm.removeItem(at: temp)
 print(failures == 0 ? "RESULT failures=0" : "RESULT failures=\(failures)")
 exit(failures == 0 ? 0 : 1)

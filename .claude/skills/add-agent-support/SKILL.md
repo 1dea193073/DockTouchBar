@@ -23,6 +23,10 @@ App 不再替任何助手改配置（早期的 Claude Code / Codex 内置连接�
 
 ### 状态机的约定（出过的坑，别改回去）
 
+- **Unix socket 路径不能超过 104 字节**：测试的支持目录要用 `/tmp/dtbv-…` 这种短路径，系统临时目录太长会让 `start()` 静默失败。
+- **`activity.json` 要先读后写**：内存里的记录必须启动时从文件载入（`lazy var activity`），否则第一条事件会把别的智能体的记录覆盖掉。
+- 自检（`Check` 事件）的回复在读到换行后就发，不要等对方关连接；脚本 `--check` 里用 `{ printf …; sleep 1; } | nc` 让 nc 等到回复（BSD nc 在 stdin 结束后会立刻退出）。
+
 - **严格 vs 宽松**：会话 id 来自 hook 的 JSON（Claude Code、Codex）是严格的，只处理自己的会话，允许同时多个会话；手动调脚本的（`manual:true` 或没有会话 id）是宽松的：Stop/Interrupt 把它名下所有工作中的会话一起收尾，3 分钟没事件就当中断。没带会话 id 时用 `agent-<id>` 当会话，不用进程号（每次调用进程号都不同，永远对不上开始和结束）。
 - **心跳不能新建会话**：用户点掉“做完了”之后迟到的 PostToolUse 会造出永远等不到 Stop 的“工作中”。
 - **Esc 打断**：Claude Code 不发任何 hook，但会往聊天记录（hook JSON 里的 `transcript_path`）追加 `[Request interrupted by user`；`scanTranscriptsForInterrupts` 每 2 秒从会话开始时的文件位置往后找，找到就回到空闲。Codex 有 `Interrupt` 事件。
@@ -31,8 +35,9 @@ App 不再替任何助手改配置（早期的 Claude Code / Codex 内置连接�
 
 ## 排查“没反应 / 卡住”
 
+0. **先自检**：`"~/Library/Application Support/DockTouchBarVibe/agent-hook.sh" --check <id> < /dev/null`，输出 `OK` + `host_app=…` 说明链路通且找到了所在 App；`NOT_RUNNING` = App 没开；`host_app=NOT_FOUND` = 进程链找不到有 Dock 图标的 App。配对提示词第 0 步也让智能体先跑它。脚本的 socket 路径可用环境变量 `DTB_SOCKET` 覆盖（测试用）。
 1. `~/Library/Application Support/DockTouchBarVibe/events.log`：没有新行 = hook 没执行；有行但 `app=-` = 进程链没找到 App。
-2. 设置页配对列表底部的“清除动画状态”。
+2. 设置页配对列表底部的“清除动画状态”；每行的“试一下”在它的所在 App 图标上放 4 秒动画（不用等智能体跑任务）。
 3. Claude 桌面版里多个会话共用一个图标，任何一个会话卡在“工作中”整个图标都会动。
 
 ## 调整图标上的动画 / 外观

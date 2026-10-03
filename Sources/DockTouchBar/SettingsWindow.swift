@@ -618,6 +618,9 @@ struct PairingPage: View {
                         .foregroundStyle(seen != nil ? Color.green : Color.orange)
                     if !agent.method.isEmpty { Text(agent.method).font(.caption).foregroundStyle(.secondary) }
                     Spacer()
+                    if let host = seen?.bundleID {
+                        Button(L10n.tr("试一下", "Try it")) { AgentMonitor.shared.simulate(bundleID: host) }
+                    }
                     Button(copiedUnpair == agent.id ? L10n.tr("已复制 ✓", "Copied ✓") : L10n.tr("复制取消配对提示词", "Copy unpair prompt")) {
                         copy(AgentPairingPrompt.unpairText(agent))
                         copiedUnpair = agent.id

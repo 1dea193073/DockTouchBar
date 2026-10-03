@@ -41,6 +41,7 @@ enum AgentPairingPrompt {
         这种方式比 hook 靠不住（取决于你每次是否照做），请如实告诉我。
 
         【验证】
+        0. 先运行 \"\(script)\" --check <你的id>：应该输出 OK 和 host_app=（你所在 App 的 bundle id）。看到 NOT_RUNNING 请让我先打开 \(AppInfo.name)；host_app=NOT_FOUND 说明找不到你所在的 App，请如实告诉我。
         1. 运行 \"\(script)\" UserPromptSubmit <你的id> test-1 < /dev/null，等 2 秒，再运行 \"\(script)\" Stop <你的id> test-1 < /dev/null。
         2. 查看 \(log) 的最后几行：应该有 UserPromptSubmit 和 Stop，agent=<你的id>，并且 app= 是你所在 App 的 bundle id。如果 app=-，说明没找到你所在的 App，请如实告诉我，不要说成功。
         3. 这时我的 Touch Bar 上，你所在 App 的图标应该出现过动画，然后显示 OK。
@@ -84,6 +85,7 @@ enum AgentPairingPrompt {
         This is less reliable than hooks (it depends on you following it every time); please tell me honestly.
 
         [Verify]
+        0. First run "\(script)" --check <your-id>: it should print OK and host_app= (the bundle id of the app you run in). NOT_RUNNING means ask me to open \(AppInfo.name); host_app=NOT_FOUND means your app wasn't found — tell me honestly.
         1. Run "\(script)" UserPromptSubmit <your-id> test-1 < /dev/null, wait 2 seconds, then run "\(script)" Stop <your-id> test-1 < /dev/null.
         2. Read the last lines of \(log): you should see UserPromptSubmit and Stop with agent=<your-id>, and app= should be the bundle id of the app you run in. If app=- the app wasn't found; tell me honestly instead of claiming success.
         3. At that point the icon of your app on my Touch Bar should have animated and then shown OK.

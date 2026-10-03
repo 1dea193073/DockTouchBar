@@ -135,9 +135,15 @@ final class AgentMonitor {
             let count = read(client, &buffer, buffer.count)
             if count <= 0 { break }
             data.append(buffer, count: count)
+            // 一条消息就是一行，读到换行就够了，不用等对方关连接（自检要在这之后回话）。
+            if data.last == UInt8(ascii: "\n") { break }
         }
-        close(client)
-        guard let text = String(data: data, encoding: .utf8) else { return }
+        guard let text = String(data: data, encoding: .utf8) else { close(client); return }
+        var reply = ""
+        defer {
+            if !reply.isEmpty { _ = reply.withCString { write(client, $0, strlen($0)) } }
+            close(client)
+        }
         for line in text.split(separator: "\n") {
             let parts = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
             guard parts.count >= 2, let ppid = pid_t(parts[1]) else { continue }
@@ -145,6 +151,11 @@ final class AgentMonitor {
             let eventParts = parts[0].split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
             let event = String(eventParts[0])
             let agent = eventParts.count == 2 ? String(eventParts[1]) : nil
+            // 自检：`agent-hook.sh --check <id>` 发来 Check，当场回一段说明（App 在运行、能不能找到所在 App、登记了没有），不进状态机。
+            if event == "Check" {
+                reply += checkReply(agent: agent, pid: ppid)
+                continue
+            }
             var json: [String: Any]?
             if parts.count == 3 { json = (try? JSONSerialization.jsonObject(with: Data(parts[2].utf8))) as? [String: Any] }
             let sessionID = json?["session_id"] as? String
@@ -157,6 +168,47 @@ final class AgentMonitor {
                 // 没带会话 id 时：手动调用的智能体用自己的 id 当会话（它每次调脚本的进程号都不同，用进程号永远对不上开始和结束）；其余用进程号。
                 let session = sessionID ?? agent.map { "agent-\($0)" } ?? "pid-\(ppid)"
                 self?.handle(event: event, sessionID: session, from: ppid, agent: who, lenient: lenient, transcriptPath: transcript)
+            }
+        }
+    }
+
+    /// 自检的回复：给智能体看的几行字，告诉它链路通不通、有没有找到它所在的 App。可以在任何线程调用。
+    func checkReply(agent: String?, pid: pid_t) -> String {
+        let owner = ownerResolver(pid)
+        var lines = [L10n.isChinese ? "OK \(AppInfo.name) 正在运行，转发脚本能连上它。" : "OK \(AppInfo.name) is running and the script can reach it."]
+        if let owner {
+            let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: owner)
+                .map { FileManager.default.displayName(atPath: $0.path) } ?? owner
+            lines.append("host_app=\(owner) (\(name))")
+        } else {
+            lines.append(L10n.isChinese
+                ? "host_app=NOT_FOUND 从这条命令的进程往上找不到有 Dock 图标的 App，所以这样发的事件不会让任何图标出现动画。请告诉用户，不要说成功。"
+                : "host_app=NOT_FOUND no app with a Dock icon was found above this command's process, so events sent this way won't animate any icon. Tell the user; don't claim success.")
+        }
+        if let agent {
+            let registered = AgentRegistry.load().contains { $0.id == agent }
+            lines.append("agent=\(agent) registered=\(registered ? "yes" : "no")")
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// 配对列表里的“试一下”：在这个 App 的图标上放 4 秒“工作中”，再显示“做完”，3 秒后自己收掉。不用等智能体跑任务就能看到动画。
+    func simulate(bundleID: String) {
+        let id = "demo-\(UUID().uuidString.prefix(6))"
+        var group = sessions[bundleID] ?? [:]
+        group[id] = Session(state: .working, lastEvent: Date(), agent: "demo", lenient: true)
+        sessions[bundleID] = group
+        onChange?()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard let self, var group = self.sessions[bundleID], group[id] != nil else { return }
+            group[id] = Session(state: .done, lastEvent: Date(), agent: "demo", lenient: true)
+            self.sessions[bundleID] = group
+            self.onChange?()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, var group = self.sessions[bundleID], group[id] != nil else { return }
+                group[id] = nil
+                self.sessions[bundleID] = group.isEmpty ? nil : group
+                self.onChange?()
             }
         }
     }
@@ -254,7 +306,12 @@ final class AgentMonitor {
 
     // MARK: - 最近活动（配对列表用）
 
-    private var activity: [String: [String: Any]] = [:]
+    /// 启动时先读上次存下的，免得第一条事件把别的智能体的记录覆盖掉。
+    private lazy var activity: [String: [String: Any]] = {
+        guard let data = try? Data(contentsOf: AgentRegistry.activityURL),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: [String: Any]] else { return [:] }
+        return json
+    }()
     private var lastActivityWrite = Date.distantPast
 
     /// 记下每个智能体最近一次事件，存进 `activity.json`（重启 App、换日志都不丢）。心跳频繁，最多 2 秒写一次。
