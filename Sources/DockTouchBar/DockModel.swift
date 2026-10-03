@@ -112,9 +112,12 @@ enum DockModel {
     }
 
     static func runningApp(bundleID: String?, url: URL) -> NSRunningApplication? {
-        // 有多个同 bundle 进程时，取最早启动的（长期运行的那个），不取短命的额外进程。
-        NSWorkspace.shared.runningApplications.filter { matches($0, bundleID: bundleID, url: url) }
-            .min { ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast) }
+        // 有些 App 的后台辅助进程也报同一个 App 路径（实测：微信的 wxplayer，activationPolicy 是 prohibited、
+        // 没有 bundle ID 和启动时间），只认有 Dock 图标的那个主进程，否则最小化、长按退出、切换前台都会落到辅助进程上。
+        // 有多个同 bundle 的主进程时，取最早启动的（长期运行的那个），不取短命的额外进程。
+        NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && matches($0, bundleID: bundleID, url: url) }
+            .min { ($0.launchDate ?? .distantFuture) < ($1.launchDate ?? .distantFuture) }
     }
 
     /// 访达现在的 PID，给 `FinderWindowMonitor` 盯着用。进程杀不掉，一般不会变，崩溃重启后会变。
