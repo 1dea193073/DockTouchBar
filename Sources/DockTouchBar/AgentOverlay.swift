@@ -48,6 +48,8 @@ final class AgentOverlayLayer: CALayer {
     /// 下巴（磁盘区域）的高度，单位 pt = 7 像素。字符雨和渐变都不进这一块，它也是图标上唯一不透明盖住原图的地方。
     private static let chinHeight: CGFloat = 3.5
     private let shape = CALayer()
+    /// 工作中/做完时，原图标被重画成 8-bit 像素版（低分辨率、限色），放在屏幕里。
+    private let sprite = CALayer()
     /// 被图标轮廓裁剪的内容（渐变、字符雨、OK）；轮廓线本身不裁，光晕才能往外晕开一点。
     private let content = CALayer()
     private let outline = CALayer()
@@ -86,6 +88,10 @@ final class AgentOverlayLayer: CALayer {
         cursor.backgroundColor = Self.green
         shape.contentsGravity = .resizeAspect
         shape.contentsScale = 2
+        sprite.contentsScale = 2
+        sprite.magnificationFilter = .nearest
+        sprite.minificationFilter = .nearest
+        content.addSublayer(sprite)
         content.addSublayer(rain)
         content.addSublayer(okText)
         content.addSublayer(cursor)
@@ -116,6 +122,8 @@ final class AgentOverlayLayer: CALayer {
         shape.contents = icon
         let built = icon.flatMap { Self.screenFrame(of: $0) }
         outline.contents = built?.image
+        sprite.frame = content.bounds
+        sprite.contents = icon.flatMap { Self.pixelated($0) }
         isHidden = state == .idle
         rain.sublayers?.forEach { $0.removeFromSuperlayer() }
         cursor.removeAllAnimations()
@@ -242,6 +250,29 @@ final class AgentOverlayLayer: CALayer {
         context.setFillColor(green)
         for p in pixels { context.fill(CGRect(x: p[0], y: p[1], width: 1, height: 1)) }
         return context.makeImage()
+    }
+
+    /// 把图标重画成 8-bit 风格：缩到 28×28 个色块（每块 2 像素），每个颜色通道只留 4 档（共 64 色），
+    /// 半透明的格子要么实心要么留空。放大时不插值，一格就是一个大像素。
+    private static func pixelated(_ icon: CGImage) -> CGImage? {
+        let n = 28, levels: CGFloat = 3
+        guard let small = CGContext(data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = small.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        small.interpolationQuality = .high
+        small.draw(icon, in: CGRect(x: 0, y: 0, width: n, height: n))
+        for i in 0..<(n * n) {
+            let o = i * 4
+            let alpha = CGFloat(data[o + 3]) / 255
+            guard alpha >= 0.5 else { data[o] = 0; data[o + 1] = 0; data[o + 2] = 0; data[o + 3] = 0; continue }
+            for c in 0..<3 {
+                let straight = min(CGFloat(data[o + c]) / 255 / alpha, 1)
+                data[o + c] = UInt8((straight * levels).rounded() / levels * 255)
+            }
+            data[o + 3] = 255
+        }
+        return small.makeImage()
     }
 
     /// 老式 CRT 小电脑（经典 Macintosh）的外壳，盖在图标上，图标自己就是“屏幕里显示的内容”：
