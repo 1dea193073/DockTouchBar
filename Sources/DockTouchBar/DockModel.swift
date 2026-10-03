@@ -57,16 +57,17 @@ enum DockModel {
                                   isRunning: finderOpen, isFrontmost: finderFront)
         if includePinned || finderOpen { tiles.append(finderTile) }
 
-        if includePinned {
-            for entry in pinned where entry.bundleID != finderID {
-                // 同一个 App 可能同时有多个 regular 进程（Chrome 会短暂冒出同 bundle 的额外进程），
-                // 全部认领；只认领第一个的话，其余会被当成“新启动的临时 App”冒到最左边。
-                let instances = running.filter { matches($0, bundleID: entry.bundleID, url: entry.url) }
-                instances.forEach { claimed.insert($0.processIdentifier) }
-                tiles.append(DockTile(kind: .app, url: entry.url, bundleID: entry.bundleID,
-                                      isRunning: !instances.isEmpty,
-                                      isFrontmost: instances.contains { $0.processIdentifier == frontPID }))
-            }
+        // “只显示正在运行的 App”模式也要按 Dock 固定顺序走一遍，只是没在运行的跳过，
+        // 这样已启动的固定 App 相对顺序和 Dock 一致，不会被启动时间打乱。
+        for entry in pinned where entry.bundleID != finderID {
+            // 同一个 App 可能同时有多个 regular 进程（Chrome 会短暂冒出同 bundle 的额外进程），
+            // 全部认领；只认领第一个的话，其余会被当成“新启动的临时 App”冒到最左边。
+            let instances = running.filter { matches($0, bundleID: entry.bundleID, url: entry.url) }
+            instances.forEach { claimed.insert($0.processIdentifier) }
+            guard includePinned || !instances.isEmpty else { continue }
+            tiles.append(DockTile(kind: .app, url: entry.url, bundleID: entry.bundleID,
+                                  isRunning: !instances.isEmpty,
+                                  isFrontmost: instances.contains { $0.processIdentifier == frontPID }))
         }
 
         // 不按激活时间排：点击/切换已经打开的 App 不应让列表跳动。
@@ -93,7 +94,8 @@ enum DockModel {
     }
 
     /// 排列：固定模式下，临时 App（最近启动的在最左）→ 访达和固定 App → 垃圾桶；
-    /// “只显示正在运行的 App”模式下，访达（有窗口才有）排最左，后面是正在运行的 App → 垃圾桶（开着窗口才有）。
+    /// “只显示正在运行的 App”模式下，访达（有窗口才有）排最左，后面是正在运行的固定 App（保持 Dock 顺序，
+    /// 没运行的跳过）→ 不在 Dock 里的临时 App（最近启动的在前）→ 垃圾桶（开着窗口才有）。
     /// 单独拿出来是为了能脱离系统状态做测试（tools/verify-dock-layout）。
     static func arrange(base: [DockTile], others: [DockTile], includePinned: Bool, trashOpen: Bool = false) -> [DockTile] {
         var tiles = base
