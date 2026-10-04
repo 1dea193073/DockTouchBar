@@ -20,7 +20,7 @@
   <br>
   <a href="https://github.com/hooosberg/DockTouchBar/releases/latest"><strong>⬇ DockTouchBar</strong></a> (Standard: your Dock on the Touch Bar)
   &nbsp;·&nbsp;
-  <a href="https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0"><strong>⬇ DockTouchBar Vibe</strong></a> (adds live AI agent status on the icons)
+  <a href="https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.23"><strong>⬇ DockTouchBar Vibe</strong></a> (adds live AI agent status on the icons)
   <br>
   <sub>Not sure which? Start with Standard. <a href="#two-editions">What's the difference and where to download?</a></sub>
 </p>
@@ -54,14 +54,16 @@
 |---|---|---|
 | For | Everyone with a Touch Bar Mac | People who code with AI agents (Claude Code, Codex, Qoder, WorkBuddy, Antigravity…) |
 | What it is | Your Dock on the Touch Bar: tap, double-tap, long-press | Everything in Standard, plus a live status on the icon of the app your AI agent runs in: a pixel-art screen with falling digits while it works, **OK** when it's done |
-| Download | [**Download Standard**](https://github.com/hooosberg/DockTouchBar/releases/latest) | [**Download Vibe 1.0**](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0) |
+| Download | [**Download Standard**](https://github.com/hooosberg/DockTouchBar/releases/latest) | [**Download Vibe 1.23**](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.23) |
 
 **Where to download**
 
 - **Standard** → the repository's [**Releases** page](https://github.com/hooosberg/DockTouchBar/releases/latest) (the release marked **Latest**, also shown in the right sidebar of this page). Download `DockTouchBar-<version>.dmg`.
-- **Vibe** → its own release, [**Vibe 1.0**](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0). Download `DockTouchBarVibe-<version>.dmg` from **Assets**. GitHub's sidebar can only show one "Latest", so Vibe is not shown there; use this link, or find it in the full [Releases list](https://github.com/hooosberg/DockTouchBar/releases) (releases named "Vibe").
+- **Vibe** → its own release, [**Vibe 1.23**](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.23). Download `DockTouchBarVibe-<version>.dmg` from **Assets**. GitHub's sidebar can only show one "Latest", so Vibe is not shown there; use this link, or find it in the full [Releases list](https://github.com/hooosberg/DockTouchBar/releases) (releases named "Vibe").
 
 **Not sure? Start with Standard.** Pick **Vibe** if you use AI coding agents on this Mac and want to see, right on the Touch Bar, which one is busy and which one has just finished. Vibe is a separate app with its own name, settings and updates, and it already includes the whole Dock, so you only need one of the two. They both take the Touch Bar, so run one at a time (Vibe tells you if the Standard one is running). Both come from this repository: Standard is the `main` branch, Vibe is the `vibecoding` branch.
+
+Vibe 1.23 shares Standard 1.23's window centering and maximizing code. Their version numbers are aligned; each app keeps its own settings and update channel.
 
 ![DockTouchBar on the Touch Bar](assets/touchbar-idle.gif)
 *Idle state: apps aligned to bottom with top-right active badge dot (red for frontmost app); pixel-art coffee cup with live rising steam.*
@@ -193,7 +195,7 @@ Things to know:
 
 ## Install
 
-1. Download `DockTouchBar-<version>.dmg` from [Releases](https://github.com/hooosberg/DockTouchBar/releases/latest). (For **Vibe**, download `DockTouchBarVibe-<version>.dmg` from its [release](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.0) and drag **DockTouchBar Vibe** onto Applications; see [Two editions](#two-editions).)
+1. Download `DockTouchBar-<version>.dmg` from [Releases](https://github.com/hooosberg/DockTouchBar/releases/latest). (For **Vibe**, download `DockTouchBarVibe-<version>.dmg` from its [release](https://github.com/hooosberg/DockTouchBar/releases/tag/vibe-v1.23) and drag **DockTouchBar Vibe** onto Applications; see [Two editions](#two-editions).)
 2. Open it and drag **DockTouchBar** onto **Applications**, then launch it. A Dock icon appears in the menu bar and on the Touch Bar.
 
 > The DMG is signed with a Developer ID certificate and **notarized by Apple**, so it opens like any other app. macOS will only ask you to confirm the first launch. Prefer to compile it yourself? See [Build from source](#build-from-source).
